@@ -14,6 +14,8 @@ import rikka.shizuku.Shizuku;
 
 public final class MonitorService extends Service {
     static volatile boolean running;
+    static volatile String diagnostics = "";
+    static Runnable onDiagnosticsChanged;
     private static volatile IClipboardBridge launchBridge;
     private final Handler main = new Handler(Looper.getMainLooper());
     private IClipboardBridge bridge;
@@ -49,7 +51,8 @@ public final class MonitorService extends Service {
             main.post(() -> {
                 if (!alive || bridge == null) return;
                 heartbeat = android.os.SystemClock.uptimeMillis();
-                Prefs.get(MonitorService.this).edit().putString("clipboard_diagnostics", diagnostics).apply();
+                MonitorService.diagnostics = diagnostics;
+                if (onDiagnosticsChanged != null) onDiagnosticsChanged.run();
             });
         }
         @Override public void onStatus(String status) {
@@ -109,6 +112,7 @@ public final class MonitorService extends Service {
         int ticket = ++generation;
         main.removeCallbacks(retry); main.removeCallbacks(timeout);
         Prefs.get(this).edit().putString("clipboard_diagnostics", "等待权限服务连接…").apply();
+        diagnostics = "等待权限服务连接…";
         Prefs.status(this, attempts == 0 ? "正在连接权限服务…" : "正在自动恢复监听…");
         main.postDelayed(timeout, 30_000);
         if ("root".equals(mode)) {
@@ -158,6 +162,7 @@ public final class MonitorService extends Service {
     }
     @Override public void onDestroy() {
         alive = false; running = false; main.removeCallbacksAndMessages(null);
+        diagnostics = "监听已停止";
         disconnect();
         PromptSafety.cancel(this);
         Prefs.get(this).edit().putString("clipboard_diagnostics", "监听已停止").apply();

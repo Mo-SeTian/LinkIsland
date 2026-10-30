@@ -164,7 +164,7 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                 }
                 Spacer(Modifier.height(24.dp))
             }
-            Text("链接仅在本机处理", Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 22.dp),
+            Text("本地匹配，不记录剪贴板历史", Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 22.dp),
                 fontSize = 12.sp, color = muted(), textAlign = TextAlign.Center)
         }
     }

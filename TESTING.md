@@ -78,7 +78,7 @@
 
 ## 复现
 
-主 APK：GitHub Actions 或 Message 中的 LinkIsland-0.2.10-Debug/Release-短MD5.apk。完整操作步骤见 README.md。
+主 APK：GitHub Actions 或 Message 中的 LinkIsland-0.2.11-Debug/Release-短MD5.apk。完整操作步骤见 README.md。
 
 额外的跨 App 剪贴板测试夹具位于 app/src/androidTest，独立安装包名为 dev.linkisland.app.test。它不打包到主 APK，未包含在交付 APK 内。可以使用以下任务构建：
 
@@ -181,3 +181,14 @@
 - 工作流通过 actionlint 检查。签名和 Message 上传配置使用 Repository secrets，本地完整签名备份被 Git 忽略。
 - 首次云端运行发现 setup-android 默认安装已下架的 tools 包，显式指定 platform-tools 后修复。GitHub Actions 第 2 次运行全部成功：测试、双包构建、两包签名校验、产物归档及 Message 上传均通过。构建源提交为 22c5d0db8fa2a7e1ba32edd080ff2f7c539b0813，记录：https://github.com/Mo-SeTian/LinkIsland/actions/runs/40982001176 。
 - 真实 Message 回执确认两个 APK 同时进入指定频道的同一条消息；GitHub 产物为 LinkIsland-0.2.10-2，保留 30 天。验证记录更新仅修改文档，提交标记 skip ci 避免重复上传相同代码。
+
+## 0.2.11 小红书短链与资源验证（2026-10-30）
+
+- 用户确认已安装小红书 9.41.0、开启授权跳转。对其提供的 HTTPS 短链请求，确认一次 302 指向 www.xiaohongshu.com/discovery/item，带签名查询参数；没有将真实笔记地址和签名参数写入本记录。
+- 在独立模拟器安装自建路由夹具，仅声明小红书长链接或官方 xhsdiscover 笔记协议；它用于验证 Intent 契约，不是小红书官方 App，也没有安装在用户测试手机。
+- 同一测试短链在旧 0.2.10 上出现目标无法处理弹窗；0.2.11 的真实通知点击可以展开后进入 HTTPS 长链接夹具，禁用长链接路由的夹具版本可进入原生笔记协议，两者均保留 xsec_token 并能返回来源 App。
+- 实际断网时给出短链解析失败提示，取消回到来源 App；未安装目标时立即保留普通浏览器回退，不启动短链解析。测试期间均不打开链接岛主页。
+- 新增七项纯 Java 测试，覆盖 302 保参、不获取笔记正文、相对重定向、无关/私网/明文目标拒绝、循环、无有效跳转、跳转次数上限和原生 URI 编码参数。共 45 项单元测试通过，Debug / Release 签名构建及 Lint 通过。
+- 诊断心跳改为内存缓存，MainActivity 在恢复/暂停时注册/清除刷新回调；后台每两秒的诊断不再写配置文件。Root / Shizuku 心跳监测仍接收诊断，不因界面暂停而失效。
+- 小米 10 的真实 Root 进程完成两个 120 秒后台采样，主进程与 Root 桥稳定运行；旧参考版本合计 CPU 约单核 1.66%，优化包约 0.25%。优化包结束时合计 PSS 132.4 MiB，主进程 write_bytes 增量为 0，配置 mtime 24 次采样均不变。完整方法与限制见 docs/PERFORMANCE-0.2.11.md。
+- 资源测试使用保持测试机旧 Root 授权的临时 Debug 包，不作为交付产物；测量后停止监听、恢复设备原版本与亮屏设置。正式产物仍由现有项目签名生成。用户实际 9.41.0 / HyperOS 4 的完整 App 行为需其复测，未用夹具结果替代该机型结论。

@@ -10,11 +10,13 @@ import java.lang.reflect.Method;
 public final class ReturnStackInstrumentation extends Instrumentation {
     private String scenario;
     private boolean hold;
-    private static final String[] KEYS = {"island", "privileged_open", "browser", "rules"};
+    private String url;
+    private static final String[] KEYS = {"island", "privileged_open", "browser", "rules", "monitor_wanted"};
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         scenario = arguments.getString("scenario", "browser");
         hold = "true".equals(arguments.getString("hold"));
+        url = arguments.getString("url", "https://example.org/return-stack-test");
         start();
     }
     @Override public void onStart() {
@@ -31,7 +33,7 @@ public final class ReturnStackInstrumentation extends Instrumentation {
                     SharedPreferences.Editor edit = p.edit();
                     for (String key : KEYS) {
                         if (!saved.contains(key)) edit.remove(key);
-                        else if ("island".equals(key) || "privileged_open".equals(key))
+                        else if (!"browser".equals(key) && !"rules".equals(key))
                             edit.putBoolean(key, saved.getBoolean(key, false));
                         else edit.putString(key, saved.getString(key, ""));
                     }
@@ -42,20 +44,22 @@ public final class ReturnStackInstrumentation extends Instrumentation {
                 if (!saved.getBoolean("saved", false)) {
                     SharedPreferences.Editor edit = saved.edit().clear().putBoolean("saved", true);
                     for (String key : KEYS) if (p.contains(key)) {
-                        if ("island".equals(key) || "privileged_open".equals(key))
+                        if (!"browser".equals(key) && !"rules".equals(key))
                             edit.putBoolean(key, p.getBoolean(key, false));
                         else edit.putString(key, p.getString(key, ""));
                     }
                     edit.commit();
                 }
-                String pkg = "missing".equals(scenario) ? "dev.linkisland.missing" : getContext().getPackageName();
-                String rules = "app".equals(scenario) || "missing".equals(scenario)
+                String pkg = "xhs".equals(scenario) ? "com.xingin.xhs"
+                    : "missing".equals(scenario) ? "dev.linkisland.missing" : getContext().getPackageName();
+                String rules = "xhs".equals(scenario) ? "[{\"name\":\"小红书\",\"type\":\"domain\",\"pattern\":\"xhslink.cn\",\"package\":\"com.xingin.xhs\"}]"
+                    : "app".equals(scenario) || "missing".equals(scenario)
                     ? "[{\"name\":\"任务栈测试\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"" + pkg + "\"}]" : "[]";
-                p.edit().putBoolean("island", false).putBoolean("privileged_open", false)
+                p.edit().putBoolean("island", false).putBoolean("privileged_open", false).putBoolean("monitor_wanted", false)
                     .putString("browser", "chooser".equals(scenario) ? "ask" : getContext().getPackageName())
                     .putString("rules", rules).commit();
                 invoke(c, "dev.linkisland.app.LinkNotifications", "show",
-                    new Class<?>[]{Context.class, String.class}, c, "https://example.org/return-stack-test");
+                    new Class<?>[]{Context.class, String.class}, c, url);
                 ready.createNewFile();
                 if (hold) {
                     long deadline = android.os.SystemClock.elapsedRealtime() + 30_000;

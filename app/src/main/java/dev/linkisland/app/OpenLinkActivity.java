@@ -10,6 +10,9 @@ import java.util.List;
 
 public final class OpenLinkActivity extends Activity {
     private String original;
+    private boolean expanded;
+    private String nativeFallback;
+    private Thread resolver;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         PromptSafety.cancel(this);
@@ -21,8 +24,11 @@ public final class OpenLinkActivity extends Activity {
             .addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), false);
     }
     private void unavailableTarget() {
+        unavailableTarget("可能未安装，或不支持该页面。是否改用浏览器打开原始链接？");
+    }
+    private void unavailableTarget(String message) {
         new AlertDialog.Builder(this).setTitle("目标 App 无法处理此链接")
-            .setMessage("可能未安装，或不支持该页面。是否改用浏览器打开原始链接？")
+            .setMessage(message)
             .setPositiveButton("浏览器打开", (d, w) -> openBrowser(original))
             .setNegativeButton("取消", (d, w) -> finish()).setOnCancelListener(d -> finish()).show();
     }
@@ -63,7 +69,42 @@ public final class OpenLinkActivity extends Activity {
         try { startActivity(intent); Prefs.status(this, browser ? "已请求浏览器打开链接" : "已请求目标 App 打开链接"); finish(); }
         catch (ActivityNotFoundException | SecurityException e) {
             if (browser) { Prefs.status(this, "浏览器启动失败"); finish(); }
-            else unavailableTarget();
+            else if (nativeFallback != null) {
+                String target = nativeFallback; nativeFallback = null;
+                requestOpen(new Intent(intent).setData(Uri.parse(target)), false);
+            } else if (!expanded && XhsLinks.supports(intent.getDataString(), intent.getPackage()) && targetInstalled(intent.getPackage())) {
+                expandShortLink(intent);
+            } else unavailableTarget();
         }
+    }
+    private boolean targetInstalled(String pkg) {
+        try { return getPackageManager().getApplicationInfo(pkg, 0).enabled; }
+        catch (android.content.pm.PackageManager.NameNotFoundException e) { return false; }
+    }
+    private void expandShortLink(Intent intent) {
+        expanded = true;
+        Prefs.status(this, "正在解析小红书短链接…");
+        android.widget.Toast.makeText(this, "正在解析小红书短链接…", android.widget.Toast.LENGTH_SHORT).show();
+        resolver = new Thread(() -> {
+            try {
+                String target = XhsLinks.resolve(intent.getDataString());
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    nativeFallback = XhsLinks.nativeNote(target);
+                    requestOpen(new Intent(intent).setData(Uri.parse(target)), false);
+                });
+            } catch (java.io.IOException e) {
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    Prefs.status(this, "小红书短链解析失败 · " + e.getClass().getSimpleName());
+                    unavailableTarget("小红书已安装，但短链接解析失败。请检查网络后重试，或使用浏览器打开原始链接。");
+                });
+            }
+        }, "xhs-link-resolve");
+        resolver.start();
+    }
+    @Override public void onDestroy() {
+        if (resolver != null) resolver.interrupt();
+        super.onDestroy();
     }
 }
