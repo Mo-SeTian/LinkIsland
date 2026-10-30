@@ -54,7 +54,7 @@ public final class ReturnStackInstrumentation extends Instrumentation {
                     : "missing".equals(scenario) ? "dev.linkisland.missing" : getContext().getPackageName();
                 String rules = "xhs".equals(scenario) ? "[{\"name\":\"小红书\",\"type\":\"domain\",\"pattern\":\"xhslink.cn\",\"package\":\"com.xingin.xhs\"}]"
                     : "app".equals(scenario) || "missing".equals(scenario)
-                    ? "[{\"name\":\"任务栈测试\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"" + pkg + "\"}]" : "[]";
+                    ? "[{\"name\":\"任务栈测试\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"" + pkg + "\"}]" : "[{\"name\":\"浏览器测试\",\"type\":\"regex\",\"pattern\":\"^https?://\"}]";
                 p.edit().putBoolean("island", false).putBoolean("privileged_open", false).putBoolean("monitor_wanted", false)
                     .putString("browser", "chooser".equals(scenario) ? "ask" : getContext().getPackageName())
                     .putString("rules", rules).commit();

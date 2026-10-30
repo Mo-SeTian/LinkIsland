@@ -2,6 +2,16 @@ package dev.linkisland.app
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import kotlinx.coroutines.isActive
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -71,7 +81,7 @@ internal fun LinkIslandUi(
     onExport: () -> Unit, onImport: () -> Unit, onApplyBackup: (Boolean) -> String?, onCancelBackup: () -> Unit,
     onIsland: (Boolean) -> Unit,
     onProbe: () -> Unit, onNotificationSettings: () -> Unit, onRefresh: () -> Unit,
-    onSaveRule: (Int, JSONObject) -> String?, onDeleteRule: (Int) -> Unit,
+    onSaveRule: (Int, JSONObject) -> String?, onDeleteRule: (Int) -> Unit, onReorderRules: (List<Int>) -> Unit,
     installedApps: () -> List<Pair<String, String>>,
     onShizukuDismiss: () -> Unit, onOpenShizuku: () -> Unit
 ) {
@@ -87,7 +97,7 @@ internal fun LinkIslandUi(
                 Crossfade(targetState = screen, label = "page") { page ->
                     when {
                         page == "home" -> HomePage(running, connecting, status, rulesJson, onNavigate, onToggle)
-                        page == "rules" -> RulesPage(rulesJson, onNavigate)
+                        page == "rules" -> RulesPage(rulesJson, onNavigate, onReorderRules)
                         page.startsWith("edit:") -> {
                             val index = page.substringAfter(":").toInt()
                             val initial = JSONArray(rulesJson).optJSONObject(index) ?: JSONObject()
@@ -185,36 +195,111 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
 }
 
 @Composable
-private fun RulesPage(json: String, navigate: (String) -> Unit) {
+private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<Int>) -> Unit) {
     val rules = remember(json) { JSONArray(json).let { array -> List(array.length()) { array.getJSONObject(it) } } }
-    DetailPage("匹配规则", { navigate("home") }, action = {
-        IconButton(onClick = { navigate("edit:-1") }, modifier = Modifier.size(48.dp)) {
-            Icon(MiuixIcons.Add, "添加规则", tint = Accent)
+    val order = remember(json) { rules.indices.toList().toMutableStateList() }
+    val list = rememberLazyListState()
+    var dragged by remember(json) { mutableStateOf<Int?>(null) }
+    var top by remember { mutableFloatStateOf(0f) }
+    var distance by remember { mutableFloatStateOf(0f) }
+    var draggedSize by remember { mutableIntStateOf(0) }
+    val edge = with(LocalDensity.current) { 64.dp.toPx() }
+    val saveOrder by rememberUpdatedState(reorder)
+    fun finish(cancel: Boolean) {
+        if (cancel) { order.clear(); order.addAll(rules.indices.toList()) }
+        else if (order != rules.indices.toList()) {
+            list.requestScrollToItem(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset)
+            saveOrder(order.toList())
         }
-    }) {
-        Note("按列表顺序匹配，第一条命中生效。\n未命中的网页链接使用设置中选择的浏览器。")
-        Spacer(Modifier.height(18.dp))
-        if (rules.isEmpty()) {
-            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
-                Text("还没有匹配规则", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Note("添加一条规则，指定链接应交给哪个 App。")
+        dragged = null
+    }
+    LaunchedEffect(dragged) {
+        val active = dragged ?: return@LaunchedEffect
+        var lastFrame = withFrameNanos { it }
+        while (isActive) {
+            val frame = withFrameNanos { it }
+            val dt = ((frame - lastFrame) / 1_000_000_000f).coerceAtMost(.05f)
+            lastFrame = frame
+            val info = list.layoutInfo
+            val center = top + distance + draggedSize / 2f
+            val speed = when {
+                center < info.viewportStartOffset + edge -> -((info.viewportStartOffset + edge - center) / edge).coerceAtMost(1f)
+                center > info.viewportEndOffset - edge -> ((center - info.viewportEndOffset + edge) / edge).coerceAtMost(1f)
+                else -> 0f
             }
-        } else Card(Modifier.fillMaxWidth()) {
-            rules.forEachIndexed { index, rule ->
+            if (speed != 0f) list.scrollBy(speed * edge * 12f * dt)
+            val rows = list.layoutInfo.visibleItemsInfo.filter { it.key is Int }
+            if (rows.isEmpty()) continue
+            val y = center.coerceIn(rows.first().offset.toFloat(), (rows.last().offset + rows.last().size - 1).toFloat())
+            val target = rows.firstOrNull { it.key != active && y >= it.offset && y < it.offset + it.size }
+            if (target != null) {
+                val from = order.indexOf(active)
+                val to = order.indexOf(target.key)
+                // Preserve the viewport while a row crosses its first visible position.
+                list.requestScrollToItem(list.firstVisibleItemIndex, list.firstVisibleItemScrollOffset)
+                order.add(to, order.removeAt(from))
+            }
+        }
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { navigate("home") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Back, "返回", Modifier.size(22.dp)) }
+            Text("匹配规则", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+            IconButton(onClick = { navigate("edit:-1") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Add, "添加规则", tint = Accent) }
+        }
+        LazyColumn(state = list, userScrollEnabled = dragged == null, modifier = Modifier.pointerInput(json) {
+            detectDragGesturesAfterLongPress(onDragStart = { position ->
+                val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key is Int && position.y >= it.offset && position.y < it.offset + it.size }
+                if (item != null) {
+                    dragged = item.key as Int; top = item.offset.toFloat(); distance = 0f; draggedSize = item.size
+                }
+            }, onDragCancel = { finish(true) }, onDragEnd = { finish(false) }) { change, amount ->
+                if (dragged != null) { change.consume(); distance += amount.y }
+            }
+        }, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            item(key = "help") {
+                Note("按住右侧手柄拖动排序，第一条命中生效。\n浏览器规则建议放在最后；没有规则命中时不提示、不跳转。")
+                Spacer(Modifier.height(14.dp))
+            }
+            if (rules.isEmpty()) item(key = "empty") {
+                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
+                    Text("还没有匹配规则", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Note("添加一条规则，指定链接应交给哪个 App。")
+                }
+            }
+            items(order, key = { it }) { index ->
+                val rule = rules[index]
                 val context = LocalContext.current
                 val packageName = rule.optString("package")
                 val appIcon = remember(packageName) { TargetAppIcon.load(context, packageName).asImageBitmap() }
-                SuperArrow(title = rule.optString("name").ifBlank { "自定义规则" },
-                    startAction = { Image(appIcon, null, Modifier.padding(end = 12.dp).size(36.dp)) },
-                    summary = rule.optString("description").ifBlank { typeLabel(rule.optString("type")) + " · " + rule.optString("pattern") },
-                    endActions = { Text(if (rule.optBoolean("enabled", true)) "已启用" else "停用",
-                        color = if (rule.optBoolean("enabled", true)) Accent else muted(), fontSize = 12.sp) },
-                    onClick = { navigate("edit:$index") })
-                if (index < rules.lastIndex) RowDivider()
+                val name = rule.optString("name").ifBlank { "自定义规则" }
+                val moving = dragged == index
+                Card(Modifier.fillMaxWidth().zIndex(if (moving) 1f else 0f).graphicsLayer {
+                    translationY = if (moving) top + distance - (list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == index }?.offset ?: 0) else 0f
+                    alpha = if (moving) .93f else 1f
+                }) {
+                    SuperArrow(title = name,
+                        startAction = { Image(appIcon, null, Modifier.padding(end = 12.dp).size(36.dp)) },
+                        summary = rule.optString("description").ifBlank { typeLabel(rule.optString("type")) + " · " + rule.optString("pattern") },
+                        endActions = {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (rule.optBoolean("enabled", true)) "已启用" else "停用", color = if (rule.optBoolean("enabled", true)) Accent else muted(), fontSize = 12.sp)
+                                Box(Modifier.size(48.dp).semantics {
+                                    contentDescription = "拖动排序：$name"
+                                    customActions = listOf(-1 to "上移", 1 to "下移").mapNotNull { (delta, label) ->
+                                        val position = order.indexOf(index)
+                                        if (position + delta !in order.indices) null else CustomAccessibilityAction(label) {
+                                            order.add(position + delta, order.removeAt(position)); saveOrder(order.toList()); true
+                                        }
+                                    }
+                                }, contentAlignment = Alignment.Center) { Text("≡", fontSize = 25.sp, color = muted()) }
+                            }
+                        }, onClick = { if (dragged == null) navigate("edit:$index") })
+                }
             }
+            item(key = "add") { TextButton("添加规则", { navigate("edit:-1") }, Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary()) }
         }
-        Spacer(Modifier.height(20.dp))
-        TextButton("添加规则", { navigate("edit:-1") }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
     }
 }
 
@@ -287,7 +372,7 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
         }
         TextButton("取消", { picker = false }, Modifier.fillMaxWidth())
     }
-    SuperDialog(show = confirmDelete, title = "删除这条规则？", summary = "删除后，该链接将继续匹配其他规则或使用所选浏览器。",
+    SuperDialog(show = confirmDelete, title = "删除这条规则？", summary = "删除后继续匹配其他规则；没有规则命中时不提示、不跳转。",
         onDismissRequest = { confirmDelete = false }) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton("取消", { confirmDelete = false }, Modifier.weight(1f))

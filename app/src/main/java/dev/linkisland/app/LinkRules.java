@@ -9,9 +9,10 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Pure Java rule engine. First matching rule wins; unmatched URLs use the browser. */
+/** Pure Java rule engine. First matching rule wins; unmatched URLs are ignored. */
 public final class LinkRules {
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\"'，。；！？、【】]+", Pattern.CASE_INSENSITIVE);
+    static final String BROWSER_PATTERN = "(?i)^https?://";
     public static final String DEFAULTS = """
 [
     {"name":"GitHub","type":"domain","pattern":"github.com","package":"com.github.android","replacement":"","enabled":true},
@@ -26,7 +27,13 @@ public final class LinkRules {
     {"name":"豆瓣","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:douban\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.douban.frodo","replacement":"","enabled":true,"description":"douban.com"},
     {"name":"网易云音乐","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:music\\\\.163\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.netease.cloudmusic","replacement":"","enabled":true,"description":"music.163.com"},
     {"name":"YouTube","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:youtube\\\\.com|youtu\\\\.be)(?::[0-9]+)?(?:[/?#]|$)","package":"com.google.android.youtube","replacement":"","enabled":true,"description":"youtube.com / youtu.be"},
-    {"name":"拼多多","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:yangkeduo\\\\.com|pinduoduo\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.xunmeng.pinduoduo","replacement":"","enabled":true,"description":"yangkeduo.com / pinduoduo.com"}
+    {"name":"拼多多","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:yangkeduo\\\\.com|pinduoduo\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.xunmeng.pinduoduo","replacement":"","enabled":true,"description":"yangkeduo.com / pinduoduo.com"},
+    {"name":"阿里云盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:aliyundrive\\\\.com|alipan\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.alicloud.databox","replacement":"","enabled":true,"description":"aliyundrive.com / alipan.com"},
+    {"name":"百度网盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:pan\\\\.baidu\\\\.com|yun\\\\.baidu\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.baidu.netdisk","replacement":"","enabled":true,"description":"pan.baidu.com / yun.baidu.com"},
+    {"name":"蓝奏云","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:lanzou\\\\.com|lanzoui\\\\.com|lanzoux\\\\.com|lanzous\\\\.com|lanzoub\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"","replacement":"","enabled":true,"description":"lanzou.com / lanzoui.com / lanzoux.com / lanzous.com / lanzoub.com · 浏览器"},
+    {"name":"蓝奏云优享版","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:ilanzou\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.ilanzou.app.disk","replacement":"","enabled":true,"description":"ilanzou.com"},
+    {"name":"123 云盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:123pan\\\\.com|123pan\\\\.cn|123684\\\\.com|123865\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.mfcloudcalculate.networkdisk","replacement":"","enabled":true,"description":"123pan.com / 123pan.cn / 123684.com / 123865.com"},
+    {"name":"网页浏览器","type":"regex","pattern":"(?i)^https?://","package":"","replacement":"","enabled":true,"description":"HTTP / HTTPS · 建议放在最后"}
 ]
         """;
 
@@ -105,10 +112,11 @@ public final class LinkRules {
         return rules;
     }
 
-    /** Append only; never reorder or replace existing user rules, including disabled ones. */
-    static String addMissingDefaults(String existing) throws Exception { return addMissingDefaults(existing, 1); }
-    static String addPinduoduoDefault(String existing) throws Exception { return addMissingDefaults(existing, 12); }
-    private static String addMissingDefaults(String existing, int start) throws Exception {
+    /** Preserve existing objects and their relative priority, including disabled ones. */
+    static String addMissingDefaults(String existing) throws Exception { return addMissingDefaults(existing, 1, 13); }
+    static String addPinduoduoDefault(String existing) throws Exception { return addMissingDefaults(existing, 12, 13); }
+    static String addCloudDefaults(String existing) throws Exception { return addMissingDefaults(existing, 13, new JSONArray(DEFAULTS).length()); }
+    private static String addMissingDefaults(String existing, int start, int end) throws Exception {
         parse(existing);
         JSONArray result = new JSONArray(existing), defaults = new JSONArray(DEFAULTS);
         java.util.Set<String> matches = new java.util.HashSet<>();
@@ -117,10 +125,36 @@ public final class LinkRules {
             matches.add(rule.optString("type", "contains") + "\n" + rule.optString("pattern"));
         }
         // GitHub existed before this revision: if absent, the user already deleted it.
-        for (int i = start; i < defaults.length() && result.length() < 100; i++) {
+        for (int i = start; i < end && result.length() < 100; i++) {
             JSONObject rule = defaults.getJSONObject(i);
-            if (matches.add(rule.getString("type") + "\n" + rule.getString("pattern"))) result.put(rule);
+            if (matches.add(rule.getString("type") + "\n" + rule.getString("pattern")))
+                result = new JSONArray(appendRule(result.toString(), rule));
         }
+        return result.toString();
+    }
+
+    /** Reorder original objects so edits, disabled state and metadata survive a drag. */
+    static String reorder(String existing, List<Integer> order) throws Exception {
+        JSONArray source = new JSONArray(existing), result = new JSONArray();
+        if (order.size() != source.length() || new java.util.HashSet<>(order).size() != source.length())
+            throw new IllegalArgumentException("规则顺序不完整");
+        for (int index : order) result.put(source.getJSONObject(index));
+        return result.toString();
+    }
+
+    static String appendRule(String existing, JSONObject rule) throws Exception {
+        JSONArray source = new JSONArray(existing), result = new JSONArray();
+        boolean inserted = false;
+        for (int i = 0; i < source.length(); i++) {
+            JSONObject current = source.getJSONObject(i);
+            if (!inserted && current.optString("type").equals("regex")
+                && current.optString("pattern").equals(BROWSER_PATTERN) && current.optString("package").isEmpty()) {
+                result.put(rule); inserted = true;
+            }
+            result.put(current);
+        }
+        if (!inserted) result.put(rule);
+        parse(result.toString());
         return result.toString();
     }
 
@@ -138,6 +172,6 @@ public final class LinkRules {
             if (rule.matches(url)) return new Route(url, rule.rewrite(url), rule.packageName,
                 rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name, i);
         }
-        return new Route(url, url, "", "默认浏览器", "", -1);
+        return null;
     }
 }

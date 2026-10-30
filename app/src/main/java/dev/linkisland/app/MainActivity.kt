@@ -124,6 +124,7 @@ class MainActivity : ComponentActivity() {
                 onRefresh = ::queryDevice,
                 onSaveRule = ::saveRule,
                 onDeleteRule = ::deleteRule,
+                onReorderRules = { order -> preferences.edit().putString("rules", LinkRules.reorder(rules, order)).apply() },
                 installedApps = ::installedApps,
                 onShizukuDismiss = { shizukuPrompt = false },
                 onOpenShizuku = {
@@ -242,13 +243,13 @@ class MainActivity : ComponentActivity() {
         startForegroundService(Intent(this, MonitorService::class.java).putExtra("mode", if (mode == 0) "shizuku" else "root"))
     }
     private fun testLink(text: String): String? {
-        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
-            return "允许通知后，请再次发送测试提示"
-        }
         val url = LinkRules.extract(text) ?: return "请输入有效的 HTTP / HTTPS 链接"
         return try {
-            LinkRules.resolve(url, LinkRules.parse(rules))
+            if (LinkRules.resolve(url, LinkRules.parse(rules)) == null) return "未命中规则，不发送提示或跳转"
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
+                return "允许通知后，请再次发送测试提示"
+            }
             LinkNotifications.show(this, url)
             toast("已发送，请查看超级岛或通知栏")
             null
@@ -258,7 +259,8 @@ class MainActivity : ComponentActivity() {
         val url = LinkRules.extract(text) ?: throw IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接")
         val route = try { LinkRules.resolve(url, LinkRules.parse(rules)) }
             catch (_: Exception) { throw IllegalArgumentException("规则无法处理此链接，请检查正则或改写模板") }
-        val rule = if (route.ruleIndex < 0) "未命中规则，使用浏览器兜底" else "第 ${route.ruleIndex + 1} 条 · ${route.ruleName}"
+        if (route == null) return RulePreview("未命中规则", "—", "", url, "—", "不发送提示或跳转")
+        val rule = "第 ${route.ruleIndex + 1} 条 · ${route.ruleName}"
         var pkg = route.packageName
         var label = route.label
         val capability: String
@@ -340,7 +342,7 @@ class MainActivity : ComponentActivity() {
                     is String -> edit.putString(key, value)
                 }
             }
-            check(edit.putString("rules", imported).putInt("default_rules_revision", 2).commit())
+            check(edit.putString("rules", imported).putInt("default_rules_revision", Prefs.DEFAULT_RULES_REVISION).commit())
             pendingBackup = null
             backupMessage = "导入完成。请检查授权后重新开启监听。"
             refresh(); refreshBrowsers(); applyTaskVisibility()
@@ -352,9 +354,9 @@ class MainActivity : ComponentActivity() {
         if (rule.optString("pattern").isBlank()) return "匹配内容不能为空"
         return try {
             val all = JSONArray(rules)
-            if (index < 0) all.put(rule) else all.put(index, rule)
-            LinkRules.parse(all.toString())
-            preferences.edit().putString("rules", all.toString()).apply()
+            val updated = if (index < 0) LinkRules.appendRule(rules, rule) else all.put(index, rule).toString()
+            LinkRules.parse(updated)
+            preferences.edit().putString("rules", updated).apply()
             navigate("rules")
             null
         } catch (_: Exception) { "请检查匹配内容、正则语法和目标 App 包名" }

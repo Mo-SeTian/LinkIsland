@@ -31,7 +31,7 @@ public final class GroupedLogInstrumentation extends Instrumentation {
             show.setAccessible(true);
             cancel = Class.forName("dev.linkisland.app.PromptSafety", true, c.getClassLoader()).getDeclaredMethod("cancel", Context.class);
             cancel.setAccessible(true);
-            p.edit().putBoolean("island", false).putBoolean("monitor_wanted", false).putInt("prompt_seconds", 30).putString("rules", "[]").commit();
+            p.edit().putBoolean("island", false).putBoolean("monitor_wanted", false).putInt("prompt_seconds", 30).putString("rules", "[{\"name\":\"浏览器测试\",\"type\":\"regex\",\"pattern\":\"^https?://\"}]").commit();
             history.edit().clear().putString("groups", "[]").commit();
             show.invoke(null, c, "https://example.org/first?private=fixture-one");
             Notification first = prompt(c, null);

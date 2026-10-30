@@ -35,16 +35,19 @@ final class LinkNotifications {
     static void show(Context c, String url) {
         String id = JumpLog.begin(c, "识别", "已识别网页链接", url, "pending");
         try {
+            LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
+            if (route == null) {
+                JumpLog.step(c, id, "匹配", "未命中规则，未提示或跳转", "skipped");
+                return;
+            }
             String previous = Prefs.get(c).getString("prompt_log_id", "");
             if (Prefs.get(c).getBoolean("prompt_active", false))
                 JumpLog.step(c, previous, "提示", "提示被新链接替换", "replaced");
             PromptSafety.cancel(c);
             channels(c);
             int seconds = Prefs.promptSeconds(c);
-            LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
             String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
-            JumpLog.step(c, id, "匹配", route.ruleName.isEmpty() ? "未命中规则，使用" + label
-                : "命中规则「" + route.ruleName + "」，目标：" + label, "");
+            JumpLog.step(c, id, "匹配", "命中规则「" + route.ruleName + "」，目标：" + label, "");
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (!nm.areNotificationsEnabled() || nm.getNotificationChannel(PROMPTS).getImportance() == NotificationManager.IMPORTANCE_NONE) {
                 Prefs.status(c, "提示被关闭 · 请开启通知权限和链接跳转提示通道");

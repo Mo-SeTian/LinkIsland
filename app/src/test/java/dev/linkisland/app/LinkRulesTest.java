@@ -17,7 +17,7 @@ public final class LinkRulesTest {
         assertEquals("", LinkRules.resolve("https://github.com.evil.example/a", rules).packageName);
         assertEquals("", LinkRules.resolve("https://example.org/?next=github.com", rules).packageName);
     }
-    @Test public void fallsBackToBrowserAndPreservesUrl() throws Exception {
+    @Test public void explicitBrowserRulePreservesUrl() throws Exception {
         String url = "https://example.org/a?q=a%20b#section";
         LinkRules.Route result = LinkRules.resolve(url, LinkRules.parse(LinkRules.DEFAULTS));
         assertEquals(url, result.target);
@@ -69,7 +69,7 @@ public final class LinkRulesTest {
             {"HTTPS://WWW.BILIBILI.COM/video/test", "tv.danmaku.bili"}
         };
         List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
-        assertEquals(13, rules.size());
+        assertEquals(19, rules.size());
         for (String[] pair : examples) {
             LinkRules.Route route = LinkRules.resolve(pair[0], rules);
             assertEquals(pair[0], pair[1], route.packageName);
@@ -90,7 +90,7 @@ public final class LinkRulesTest {
         assertEquals("我的规则", rules.get(0).name);
         assertFalse(rules.get(1).enabled);
         assertEquals("com.custom.app", LinkRules.resolve("https://www.bilibili.com/video/1", rules).packageName);
-        assertEquals("", LinkRules.resolve("https://github.com/test", rules).packageName);
+        assertNull(LinkRules.resolve("https://github.com/test", rules));
         assertEquals(upgraded, LinkRules.addMissingDefaults(upgraded));
     }
     @Test public void upgradeDoesNotResurrectDeletedOriginalRuleOrExceedLimit() throws Exception {
@@ -127,12 +127,79 @@ public final class LinkRulesTest {
         assertEquals(saved, LinkRules.addPinduoduoDefault(saved));
     }
 
-    @Test public void previewReportsActualRulePositionAndBrowserFallback() throws Exception {
+    @Test public void previewReportsActualRulePositionAndNoMatch() throws Exception {
         String rules = "[{\"name\":\"停用\",\"type\":\"domain\",\"pattern\":\"example.org\",\"enabled\":false},"
             + "{\"name\":\"实际命中\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"com.example.app\",\"replacement\":\"example://page\"}]";
         LinkRules.Route route = LinkRules.resolve("https://example.org/path", LinkRules.parse(rules));
         assertEquals(1, route.ruleIndex); assertEquals("实际命中", route.ruleName); assertEquals("example://page", route.target);
-        assertEquals(-1, LinkRules.resolve("https://other.example/path", LinkRules.parse(rules)).ruleIndex);
+        assertNull(LinkRules.resolve("https://other.example/path", LinkRules.parse(rules)));
+    }
+
+    @Test public void noImplicitBrowserWhenRulesAbsentDisabledOrDeleted() throws Exception {
+        assertNull(LinkRules.resolve("https://example.org", LinkRules.parse("[]")));
+        org.json.JSONArray all = new org.json.JSONArray(LinkRules.DEFAULTS);
+        org.json.JSONObject browser = all.getJSONObject(all.length() - 1);
+        assertEquals(LinkRules.BROWSER_PATTERN, browser.getString("pattern"));
+        assertEquals("网页浏览器", LinkRules.resolve("HTTP://example.org/a", LinkRules.parse(all.toString())).ruleName);
+        browser.put("enabled", false);
+        assertNull(LinkRules.resolve("https://example.org", LinkRules.parse(all.toString())));
+        assertEquals("com.github.android", LinkRules.resolve("https://github.com/test", LinkRules.parse(all.toString())).packageName);
+        all.remove(all.length() - 1);
+        assertNull(LinkRules.resolve("https://example.org", LinkRules.parse(all.toString())));
+    }
+    @Test public void cloudPresetsKeepSharesAndRejectImpersonation() throws Exception {
+        List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
+        String[][] examples = {
+            {"https://www.alipan.com/s/example?pwd=test", "com.alicloud.databox", "阿里云盘"},
+            {"https://www.aliyundrive.com/s/example", "com.alicloud.databox", "阿里云盘"},
+            {"https://pan.baidu.com/s/example?pwd=test", "com.baidu.netdisk", "百度网盘"},
+            {"https://yun.baidu.com/s/example", "com.baidu.netdisk", "百度网盘"},
+            {"https://foo.lanzoui.com/example", "", "蓝奏云"},
+            {"https://www.lanzoux.com/example", "", "蓝奏云"},
+            {"https://www.ilanzou.com/s/example", "com.ilanzou.app.disk", "蓝奏云优享版"},
+            {"https://www.123pan.com/s/example?pwd=test", "com.mfcloudcalculate.networkdisk", "123 云盘"},
+            {"https://www.123865.com/s/example", "com.mfcloudcalculate.networkdisk", "123 云盘"},
+            {"https://www.123684.com/s/example", "com.mfcloudcalculate.networkdisk", "123 云盘"},
+            {"https://www.123pan.cn/s/example", "com.mfcloudcalculate.networkdisk", "123 云盘"}
+        };
+        for (String[] e : examples) {
+            LinkRules.Route route = LinkRules.resolve(e[0], rules);
+            assertEquals(e[1], route.packageName); assertEquals(e[2], route.ruleName); assertEquals(e[0], route.target);
+            String fake = e[0].replaceFirst("(?i)(https?://[^/]+)", "$1.evil.example");
+            assertEquals("网页浏览器", LinkRules.resolve(fake, rules).ruleName);
+        }
+        assertEquals("网页浏览器", LinkRules.resolve("https://example.org/?next=pan.baidu.com", rules).ruleName);
+    }
+    @Test public void cloudUpgradeIsIdempotentAndPreservesUserEdits() throws Exception {
+        String upgraded = LinkRules.addCloudDefaults("[]");
+        org.json.JSONArray rules = new org.json.JSONArray(upgraded);
+        assertEquals(6, rules.length());
+        rules.getJSONObject(0).put("name", "我的云盘").put("enabled", false);
+        String saved = rules.toString();
+        assertEquals(saved, LinkRules.addCloudDefaults(saved));
+        assertEquals("网页浏览器", rules.getJSONObject(5).getString("name"));
+        String browserOnly = "[" + rules.getJSONObject(5) + "]";
+        assertEquals("网页浏览器", new org.json.JSONArray(LinkRules.addCloudDefaults(browserOnly)).getJSONObject(5).getString("name"));
+    }
+    @Test public void reorderChangesActualPriorityAndKeepsAllFieldsAndBackupOrder() throws Exception {
+        String rules = "[{\"name\":\"应用\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"com.example.app\",\"description\":\"保留\"},"
+            + "{\"name\":\"浏览器\",\"type\":\"regex\",\"pattern\":\"^https?://\"},"
+            + "{\"name\":\"停用\",\"type\":\"contains\",\"pattern\":\"example\",\"enabled\":false}]";
+        String moved = LinkRules.reorder(rules, List.of(1, 0, 2));
+        assertEquals("浏览器", LinkRules.resolve("https://example.org", LinkRules.parse(moved)).ruleName);
+        assertFalse(LinkRules.parse(moved).get(2).enabled);
+        assertEquals("保留", new org.json.JSONArray(moved).getJSONObject(1).getString("description"));
+        assertEquals(new org.json.JSONArray(moved).toString(), ConfigBackup.create(moved, java.util.Map.of(), "test").getJSONArray("rules").toString());
+        assertEquals(new org.json.JSONArray(rules).toString(), LinkRules.reorder(moved, List.of(1, 0, 2)));
+    }
+    @Test(expected = IllegalArgumentException.class) public void reorderRejectsMissingOrDuplicateIndices() throws Exception {
+        LinkRules.reorder(LinkRules.DEFAULTS, java.util.Collections.nCopies(19, 0));
+    }
+    @Test public void newRuleGoesBeforeExplicitBrowser() throws Exception {
+        org.json.JSONObject added = new org.json.JSONObject().put("type", "domain").put("pattern", "example.org").put("package", "com.example.app");
+        String rules = LinkRules.appendRule(LinkRules.DEFAULTS, added);
+        assertEquals("com.example.app", LinkRules.resolve("https://example.org", LinkRules.parse(rules)).packageName);
+        assertEquals("网页浏览器", LinkRules.parse(rules).get(19).name);
     }
 
 }

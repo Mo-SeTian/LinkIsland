@@ -26,7 +26,7 @@ public final class PromptDurationInstrumentation extends Instrumentation {
             show.setAccessible(true);
             cancel = Class.forName("dev.linkisland.app.PromptSafety", true, loader).getDeclaredMethod("cancel", Context.class);
             cancel.setAccessible(true);
-            p.edit().putBoolean("island", false).putBoolean("monitor_wanted", false).commit();
+            p.edit().putString("rules", "[{\"name\":\"浏览器测试\",\"type\":\"regex\",\"pattern\":\"^https?://\"}]").putBoolean("island", false).putBoolean("monitor_wanted", false).commit();
             NotificationManager manager = c.getSystemService(NotificationManager.class);
             for (int seconds : new int[]{30, 15, 10, 5}) for (boolean island : new boolean[]{false, true}) {
                 p.edit().putInt("prompt_seconds", seconds).putBoolean("island", island).commit();
@@ -65,8 +65,9 @@ public final class PromptDurationInstrumentation extends Instrumentation {
         } finally {
             try { if (cancel != null) cancel.invoke(null, c); } catch (Exception ignored) { }
             SharedPreferences.Editor edit = p.edit();
-            for (String key : new String[]{"prompt_seconds", "island", "monitor_wanted"}) {
+            for (String key : new String[]{"prompt_seconds", "island", "monitor_wanted", "rules"}) {
                 if (!old.containsKey(key)) edit.remove(key);
+                else if (key.equals("rules")) edit.putString(key, (String) old.get(key));
                 else if (key.equals("prompt_seconds")) edit.putInt(key, (Integer) old.get(key));
                 else edit.putBoolean(key, (Boolean) old.get(key));
             }
