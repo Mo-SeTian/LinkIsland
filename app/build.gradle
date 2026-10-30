@@ -11,8 +11,8 @@ android {
         applicationId 'dev.linkisland.app'
         minSdk 31
         targetSdk 36
-        versionCode 14
-        versionName '0.2.11'
+        versionCode 15
+        versionName '0.2.12'
         manifestPlaceholders = [targetAppId: 'dev.linkisland.app']
     }
     buildFeatures { aidl true; buildConfig true; compose true }
@@ -29,12 +29,18 @@ android {
     }
     buildTypes {
         debug {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro', 'proguard-debug.pro'
             applicationIdSuffix '.debug'
             manifestPlaceholders = [targetAppId: 'dev.linkisland.app.debug']
             resValue 'string', 'app_name', '链接岛 · Debug'
             if (signingPath) signingConfig signingConfigs.projectKey
         }
         release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             resValue 'string', 'app_name', '链接岛'
             if (signingPath) signingConfig signingConfigs.projectKey
         }

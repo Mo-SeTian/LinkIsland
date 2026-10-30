@@ -5,6 +5,8 @@
         android:targetPackage="${targetAppId}" />
     <instrumentation android:name="dev.linkisland.app.fixture.RecoveryInstrumentation"
         android:targetPackage="${targetAppId}" />
+    <instrumentation android:name="dev.linkisland.app.fixture.BridgeRecoveryInstrumentation"
+        android:targetPackage="${targetAppId}" />
     <application android:label="链接岛测试夹具">
         <activity android:name="dev.linkisland.app.fixture.CopyFixtureActivity" android:exported="true"
             android:theme="@android:style/Theme.Material.Light.NoActionBar">

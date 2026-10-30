@@ -22,6 +22,7 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
     private ClipboardChangeTracker changes;
     private int userId;
     private volatile int clientUid = -1;
+    private boolean diagnosticsVisible;
     private int events, checks, prompts;
     private String result = "尚未读取";
     private String listenerStatus = "未连接";
@@ -112,7 +113,7 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
                     listenerStatus = "事件注册失败，定时检查 · " + causeName(e);
                 }
                 report("监听已连接 · EUID " + android.system.Os.geteuid() + " · " + listenerStatus);
-                diagnostics();
+                diagnostics(true);
                 handler.postDelayed(poll, 2000);
             } catch (Exception e) {
                 report("监听初始化失败 · " + causeName(e));
@@ -169,10 +170,13 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
             return false;
         }
     }
-    private void diagnostics() {
+    private void diagnostics() { diagnostics(false); }
+    private void diagnostics(boolean force) {
         try {
-            if (callback != null) callback.onDiagnostics("事件 " + events + " · 检查 " + checks + " · 提示 " + prompts
+            if (callback == null) return;
+            if (diagnosticsVisible || force) callback.onDiagnostics("事件 " + events + " · 检查 " + checks + " · 提示 " + prompts
                 + "\n" + result + "\n读取接口 " + (access == null ? "不可用" : access.signature()));
+            else callback.onHeartbeat();
         } catch (RemoteException ignored) { cleanup(); }
     }
 
@@ -193,6 +197,7 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
         }
         if (callback != null && death != null) callback.asBinder().unlinkToDeath(death, 0);
         clientUid = -1;
+        diagnosticsVisible = false;
         callback = null; death = null; clipboard = null; listener = null; access = null; remove = null; changes = null;
         events = 0; checks = 0; prompts = 0; result = "尚未读取"; listenerStatus = "未连接";
     }
@@ -202,5 +207,9 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
     }
     @Override public void stop() { handler.post(this::cleanup); }
     @Override public void probe() { handler.post(() -> capture(MANUAL)); }
+    @Override public void setDiagnosticsVisible(boolean visible) {
+        if (Binder.getCallingUid() != clientUid) return;
+        handler.post(() -> { diagnosticsVisible = visible; if (visible) diagnostics(true); });
+    }
     @Override public void destroy() { handler.post(() -> { cleanup(); thread.quitSafely(); }); }
 }

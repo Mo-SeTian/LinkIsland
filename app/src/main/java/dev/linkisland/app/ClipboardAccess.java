@@ -18,7 +18,15 @@ final class ClipboardAccess {
     };
     private final Object service;
     private final int userId;
-    private final List<Method> readers = new ArrayList<>();
+    private static final class Reader {
+        final Method method;
+        final Object[] arguments;
+        final String signature;
+        Reader(Method method, Object[] arguments) {
+            this.method = method; this.arguments = arguments; this.signature = describe(method);
+        }
+    }
+    private final List<Reader> readers = new ArrayList<>();
     private String signature = "未读取";
 
     ClipboardAccess(Object service, int userId) throws NoSuchMethodException {
@@ -28,7 +36,7 @@ final class ClipboardAccess {
             try {
                 Method method = service.getClass().getMethod("getPrimaryClip", types);
                 method.setAccessible(true);
-                readers.add(method);
+                readers.add(new Reader(method, arguments(method, null)));
             } catch (NoSuchMethodException ignored) { }
         }
         if (readers.isEmpty()) throw new NoSuchMethodException("getPrimaryClip");
@@ -36,10 +44,10 @@ final class ClipboardAccess {
     Object read() throws ReflectiveOperationException {
         ReflectiveOperationException failure = null;
         boolean returnedEmpty = false;
-        for (Method method : readers) {
+        for (Reader reader : readers) {
             try {
-                Object result = method.invoke(service, arguments(method, null));
-                signature = describe(method);
+                Object result = reader.method.invoke(service, reader.arguments);
+                signature = reader.signature;
                 if (result != null) return result;
                 returnedEmpty = true;
             } catch (ReflectiveOperationException e) { failure = e; }

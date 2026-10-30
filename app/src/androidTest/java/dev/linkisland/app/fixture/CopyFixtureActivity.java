@@ -5,6 +5,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.os.Bundle;
 import android.os.PersistableBundle;
+import android.os.SystemClock;
 import android.net.Uri;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -12,6 +13,35 @@ import android.widget.TextView;
 
 /** External-package clipboard and deep-link fixture, installed only with the androidTest APK. */
 public final class CopyFixtureActivity extends Activity {
+    private static ClipData originalClip;
+    private static boolean clipSaved;
+    private boolean focusActionDone;
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (!focused || focusActionDone) return;
+        String url = getIntent().getStringExtra("copy_on_focus");
+        boolean restore = getIntent().getBooleanExtra("restore_clip", false);
+        if (url == null && !restore) return;
+        focusActionDone = true;
+        getWindow().getDecorView().postDelayed(() -> {
+            ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+            if (restore) {
+                if (clipSaved) {
+                    if (originalClip == null) clipboard.clearPrimaryClip();
+                    else clipboard.setPrimaryClip(originalClip);
+                    originalClip = null; clipSaved = false;
+                }
+                return;
+            }
+            // Keep the original clipboard in memory only; never log or persist its contents.
+            if (!clipSaved) { originalClip = clipboard.getPrimaryClip(); clipSaved = true; }
+            long wall = System.currentTimeMillis(), elapsed = SystemClock.elapsedRealtime();
+            clipboard.setPrimaryClip(ClipData.newPlainText("latency fixture", url));
+            getSharedPreferences("latency", MODE_PRIVATE).edit()
+                .putString("copy_id", getIntent().getStringExtra("copy_id"))
+                .putLong("copy_wall", wall).putLong("copy_elapsed", elapsed).commit();
+        }, 100);
+    }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         LinearLayout page = new LinearLayout(this);

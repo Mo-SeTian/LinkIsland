@@ -23,6 +23,9 @@ public final class MonitorService extends Service {
     private boolean bound, alive;
     private int attempts, generation;
     private long heartbeat;
+    private final Runnable heartbeatReceived = () -> {
+        if (alive && bridge != null) heartbeat = android.os.SystemClock.uptimeMillis();
+    };
     private final Runnable retry = this::connect;
     private final Runnable timeout = () -> { if (alive) reconnect("监听连接超时"); };
     private final Runnable health = new Runnable() {
@@ -39,6 +42,11 @@ public final class MonitorService extends Service {
         if (remote == null) return false;
         try { return remote.launchLink(target, pkg); } catch (Exception e) { return false; }
     }
+    static void observeDiagnostics(Runnable observer) {
+        onDiagnosticsChanged = observer;
+        IClipboardBridge remote = launchBridge;
+        if (remote != null) try { remote.setDiagnosticsVisible(observer != null); } catch (Exception ignored) { }
+    }
     private boolean automatic() { return Prefs.get(this).getBoolean("auto_restart", true); }
     private int restartMode() { return automatic() ? START_STICKY : START_NOT_STICKY; }
     private Shizuku.UserServiceArgs args() {
@@ -46,6 +54,7 @@ public final class MonitorService extends Service {
             .daemon(false).processNameSuffix("clipboard").version(BuildConfig.VERSION_CODE);
     }
     private final IClipboardCallback callback = new IClipboardCallback.Stub() {
+        @Override public void onHeartbeat() { main.post(heartbeatReceived); }
         @Override public void onLink(String url) { main.post(() -> { if (alive) LinkNotifications.show(MonitorService.this, url); }); }
         @Override public void onDiagnostics(String diagnostics) {
             main.post(() -> {
@@ -63,6 +72,7 @@ public final class MonitorService extends Service {
                     attempts = 0; main.removeCallbacks(timeout); main.removeCallbacks(health);
                     heartbeat = android.os.SystemClock.uptimeMillis();
                     main.postDelayed(health, 10_000);
+                    observeDiagnostics(onDiagnosticsChanged);
                 }
                 if (status.startsWith("监听初始化失败")) { disarm(MonitorService.this); stopSelf(); }
             });

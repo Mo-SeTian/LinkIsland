@@ -6,4 +6,5 @@ interface IClipboardBridge {
     void stop() = 2;
     void probe() = 3;
     boolean launchLink(String target, String packageName) = 4;
+    oneway void setDiagnosticsVisible(boolean visible) = 5;
 }

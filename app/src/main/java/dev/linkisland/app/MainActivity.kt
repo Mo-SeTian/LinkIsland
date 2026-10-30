@@ -275,7 +275,7 @@ class MainActivity : ComponentActivity() {
     }
     private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
     override fun onResume() {
-        MonitorService.onDiagnosticsChanged = { refresh() }
+        MonitorService.observeDiagnostics { refresh() }
         super.onResume(); refresh(); applyTaskVisibility()
         if (!MonitorService.running && MonitorPolicy.shouldResume(preferences.getBoolean("monitor_wanted", false), autoRestart)) {
             try { startForegroundService(Intent(this, MonitorService::class.java).setAction("RESUME")) }
@@ -287,7 +287,7 @@ class MainActivity : ComponentActivity() {
     }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("screen", screen); super.onSaveInstanceState(outState) }
     override fun onPause() {
-        MonitorService.onDiagnosticsChanged = null
+        MonitorService.observeDiagnostics(null)
         super.onPause()
     }
     override fun onDestroy() {

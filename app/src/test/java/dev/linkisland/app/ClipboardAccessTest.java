@@ -46,4 +46,24 @@ public final class ClipboardAccessTest {
         clipboard.vendorResult = null; clipboard.standardResult = null;
         assertNull(new ClipboardAccess(clipboard, 10).read());
     }
+    @Test public void reusedReaderAlwaysReadsTheCurrentClip() throws Exception {
+        MiuiClipboard clipboard = new MiuiClipboard();
+        ClipboardAccess access = new ClipboardAccess(clipboard, 10);
+        assertEquals("vendor clip", access.read());
+        clipboard.vendorResult = "next clip";
+        assertEquals("next clip", access.read());
+        clipboard.vendorResult = null; clipboard.standardResult = null;
+        assertNull(access.read());
+        assertEquals(List.of("miui", "miui", "miui", "aosp"), clipboard.calls);
+    }
+    public static final class UserClipboard {
+        public Object getPrimaryClip(String pkg, int user) { return user; }
+    }
+    @Test public void cachedArgumentsRemainSpecificToEachUser() throws Exception {
+        UserClipboard clipboard = new UserClipboard();
+        ClipboardAccess owner = new ClipboardAccess(clipboard, 0);
+        ClipboardAccess secondary = new ClipboardAccess(clipboard, 10);
+        assertEquals(0, owner.read()); assertEquals(10, secondary.read());
+        assertEquals(0, owner.read()); assertEquals(10, secondary.read());
+    }
 }

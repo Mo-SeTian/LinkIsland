@@ -78,7 +78,7 @@
 
 ## 复现
 
-主 APK：GitHub Actions 或 Message 中的 LinkIsland-0.2.11-Debug/Release-短MD5.apk。完整操作步骤见 README.md。
+主 APK：GitHub Actions 或 Message 中的 LinkIsland-0.2.12-Debug/Release-短MD5.apk。完整操作步骤见 README.md。
 
 额外的跨 App 剪贴板测试夹具位于 app/src/androidTest，独立安装包名为 dev.linkisland.app.test。它不打包到主 APK，未包含在交付 APK 内。可以使用以下任务构建：
 
@@ -192,3 +192,15 @@
 - 诊断心跳改为内存缓存，MainActivity 在恢复/暂停时注册/清除刷新回调；后台每两秒的诊断不再写配置文件。Root / Shizuku 心跳监测仍接收诊断，不因界面暂停而失效。
 - 小米 10 的真实 Root 进程完成两个 120 秒后台采样，主进程与 Root 桥稳定运行；旧参考版本合计 CPU 约单核 1.66%，优化包约 0.25%。优化包结束时合计 PSS 132.4 MiB，主进程 write_bytes 增量为 0，配置 mtime 24 次采样均不变。完整方法与限制见 docs/PERFORMANCE-0.2.11.md。
 - 资源测试使用保持测试机旧 Root 授权的临时 Debug 包，不作为交付产物；测量后停止监听、恢复设备原版本与亮屏设置。正式产物仍由现有项目签名生成。用户实际 9.41.0 / HyperOS 4 的完整 App 行为需其复测，未用夹具结果替代该机型结论。
+
+
+## 0.2.12 内存、心跳与恢复回归（2026-10-30）
+
+- 启用 Debug / Release 的 R8 和资源裁剪，保留动态 Root / Shizuku 服务及 Binder 入口；AGP 更新到支持 Kotlin 2.3 的 8.13.2。正式 Debug 保留可调试和可读类名，Release 启用优化与混淆；构建产物收录两类 mapping。
+- 47 项 JVM 单元测试通过，新增读取器复用后仍读取新内容及不同用户参数隔离的回归；lint 无错误。现有剪贴板变化、恢复策略、规则、通知安全和短链测试继续通过。
+- 小米 10 / Android 15 / HyperOS 3，同 UID、旧测试签名的临时 Debug 包完成 0.2.11 / 0.2.12 两段各 120 秒 Root 后台采样：结束合计 PSS 135.4 / 112.0 MiB，CPU 单核 0.250% / 0.308%，两者主进程 write_bytes 均为 0、配置 mtime 均无变化。不能用这两段低 CPU 短采样宣称实际电量下降。
+- 外部 App 复制至通知提交，0.2.11 Root、0.2.12 Root、恢复后的 Root、0.2.12 Shizuku 四组各 5/5 成功，中位延迟 255 / 242 / 253 / 255 ms。事件响应未变慢，原两秒兜底读取保留。
+- Root 主进程 SIGKILL 后约 2.05 秒由前台服务恢复并重新连接，随后新复制成功。Root 后台稳定 35 秒后停止桥工作线程，约 39.9 秒检测和重连完成（含 2.5 秒稳定观察）；Shizuku 后台稳定 35 秒后退出用户服务进程，约 5.0 秒重连并稳定。完整诊断不再持续传输时，心跳仍有效。
+- Android 16 模拟器验证正式 Debug 的前台重新打开恢复、手动停止及关闭恢复三种策略；Release 验证首页、默认规则列表和规则编辑页面，裁剪后的 miuix 界面可正常运行。
+- 测试过程中先修正夹具的 ROM 后台启动限制，以及 Shizuku 退出时预期的 DeadObjectException 处理，再完成恢复回归；未把夹具启动失败判为监听故障。
+- 测量及验证后停止测试监听，还原小米 10 的 0.2.8 测试包、Root 模式、12 条规则和原 USB 亮屏设置。未启用该机不支持的超级岛。详细方法和限制见 [资源评估](docs/PERFORMANCE-0.2.12.md)。
