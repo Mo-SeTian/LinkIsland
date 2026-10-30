@@ -253,3 +253,12 @@
 - 新增真实通知 instrumentation：空规则和停用浏览器规则均保持静默；已有匹配通知存在时，另一个未命中链接不会更换通知、编号或清理截止时间，日志标记跳过。既有同域名按次合并、过期忽略保护、最终失败与脱敏日志回归通过；普通 / 岛协议通知防清理标记、四档超时、实际 5 秒到期和忽略移除继续通过。协议字段验证不等于 HyperOS 支持机型的实际渲染验证。
 - 72 项 JVM 测试和 3 项构建推送日志测试通过，涵盖无隐式兜底、HTTP / HTTPS 显式匹配、网盘域名边界、迁移幂等、原字段及停用状态保留、拖动后优先级和备份顺序。Debug / Release 固定项目签名构建通过，Lint 无错误。
 - 网盘域名与应用身份核对来源：[阿里云盘官网](https://www.alipan.com/download)、[阿里云盘应用信息](https://app.mi.com/details?id=com.alicloud.databox)、[百度网盘应用信息](https://app.mi.com/details?id=com.baidu.netdisk)、[蓝奏云普通版](https://www.lanzou.com/u)、[蓝奏云优享版应用信息](https://app.mi.com/details?id=com.ilanzou.app.disk)、[123 云盘官网](https://www.123pan.com/)、[123 云盘应用信息](https://app.mi.com/details?id=com.mfcloudcalculate.networkdisk)。
+
+## 0.2.18 四类网盘预设与排序编辑模式（2026-10-30）
+
+- 新增夸克网盘（`pan.quark.cn` → `com.quark.browser`）、天翼云盘（`cloud.189.cn` → `com.cn21.ecloud`）、迅雷（`pan.xunlei.com` → `com.xunlei.downloadprovider`）、115 网盘（`115.com` / `115cdn.com` → `com.ylmf.androidclient`）。预设保留原分享路径、参数和片段；域名边界阻止伪装域名和查询文本误命中。应用身份来自对应的小米应用商店条目，域名核对各服务官网；115 使用“115生活”客户端。
+- 新安装的四条预设位于通用浏览器之前。默认迁移版本提升至 4，升级只补这四条，保留旧规则的字段、停用状态及相对顺序；已删除的旧网盘预设和浏览器规则不会在此次升级中补回。若用户移动过浏览器规则，新增预设仍插在该浏览器规则之前。
+- `LinkRules.java` 管理预设与有边界的迁移，`Prefs.java` 记录一次性升级；`LinkIslandUi.kt` 增加局部排序状态，不引入新依赖。普通列表隐藏手柄和无障碍移动操作，不安装拖动监听；点击“排序”后出现手柄和“完成”，沿用拖动松手保存、边缘滚动及无障碍上移 / 下移。点击完成、顶部返回或系统返回退出排序；正在拖动时退出会撤销当前未提交的预览，已保存的顺序保留。
+- Android 16 模拟器实际验证从迁移版本 3 的 19 条规则升级至 23 条，新增四条恰在浏览器之前，旧对象保持一致。普通模式长按移动只滚动、不改顺序；编辑模式拖动保存正确顺序及原字段。完成和返回均隐藏手柄且保留在规则页；拖动中按系统返回撤销预览。重启后顺序保留、默认显示普通列表，点规则仍进入编辑页。正常与编辑状态截图均已检查，未增加装饰性动画。
+- 75 项 JVM 测试、3 项构建推送测试通过；涵盖四类分享链接及原参数、伪装域名 / 查询误命中、浏览器优先级、升级幂等、停用状态和旧预设删除不复活。`./gradlew testDebugUnitTest lintDebug` 检查通过，Debug / Release 签名构建通过，Lint 无错误。此轮验证不代表各网盘客户端支持所有分享页面；未在 HyperOS 支持机型上重复验证超级岛渲染。
+- 官方身份来源：[夸克应用信息](https://app.mi.com/details?id=com.quark.browser)、[天翼云盘应用信息](https://app.mi.com/details?id=com.cn21.ecloud)、[迅雷应用信息](https://app.mi.com/details?id=com.xunlei.downloadprovider)、[115生活应用信息](https://app.mi.com/details?id=com.ylmf.androidclient)；域名来源：[夸克网盘](https://pan.quark.cn/)、[天翼云盘](https://cloud.189.cn/)、[迅雷云盘](https://pan.xunlei.com/)、[115](https://115.com/)、[115cdn](https://115cdn.com/)。

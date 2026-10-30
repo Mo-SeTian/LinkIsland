@@ -33,6 +33,10 @@ public final class LinkRules {
     {"name":"蓝奏云","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:lanzou\\\\.com|lanzoui\\\\.com|lanzoux\\\\.com|lanzous\\\\.com|lanzoub\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"","replacement":"","enabled":true,"description":"lanzou.com / lanzoui.com / lanzoux.com / lanzous.com / lanzoub.com · 浏览器"},
     {"name":"蓝奏云优享版","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:ilanzou\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.ilanzou.app.disk","replacement":"","enabled":true,"description":"ilanzou.com"},
     {"name":"123 云盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:123pan\\\\.com|123pan\\\\.cn|123684\\\\.com|123865\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.mfcloudcalculate.networkdisk","replacement":"","enabled":true,"description":"123pan.com / 123pan.cn / 123684.com / 123865.com"},
+    {"name":"夸克网盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:pan\\\\.quark\\\\.cn)(?::[0-9]+)?(?:[/?#]|$)","package":"com.quark.browser","replacement":"","enabled":true,"description":"pan.quark.cn"},
+    {"name":"天翼云盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:cloud\\\\.189\\\\.cn)(?::[0-9]+)?(?:[/?#]|$)","package":"com.cn21.ecloud","replacement":"","enabled":true,"description":"cloud.189.cn"},
+    {"name":"迅雷","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:pan\\\\.xunlei\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.xunlei.downloadprovider","replacement":"","enabled":true,"description":"pan.xunlei.com"},
+    {"name":"115 网盘","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:115\\\\.com|115cdn\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.ylmf.androidclient","replacement":"","enabled":true,"description":"115.com / 115cdn.com"},
     {"name":"网页浏览器","type":"regex","pattern":"(?i)^https?://","package":"","replacement":"","enabled":true,"description":"HTTP / HTTPS · 建议放在最后"}
 ]
         """;
@@ -115,7 +119,10 @@ public final class LinkRules {
     /** Preserve existing objects and their relative priority, including disabled ones. */
     static String addMissingDefaults(String existing) throws Exception { return addMissingDefaults(existing, 1, 13); }
     static String addPinduoduoDefault(String existing) throws Exception { return addMissingDefaults(existing, 12, 13); }
-    static String addCloudDefaults(String existing) throws Exception { return addMissingDefaults(existing, 13, new JSONArray(DEFAULTS).length()); }
+    static String addCloudDefaults(String existing) throws Exception {
+        return addMissingDefaults(addMissingDefaults(existing, 13, 18), 22, 23);
+    }
+    static String addMoreCloudDefaults(String existing) throws Exception { return addMissingDefaults(existing, 18, 22); }
     private static String addMissingDefaults(String existing, int start, int end) throws Exception {
         parse(existing);
         JSONArray result = new JSONArray(existing), defaults = new JSONArray(DEFAULTS);

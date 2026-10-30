@@ -69,7 +69,7 @@ public final class LinkRulesTest {
             {"HTTPS://WWW.BILIBILI.COM/video/test", "tv.danmaku.bili"}
         };
         List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
-        assertEquals(19, rules.size());
+        assertEquals(23, rules.size());
         for (String[] pair : examples) {
             LinkRules.Route route = LinkRules.resolve(pair[0], rules);
             assertEquals(pair[0], pair[1], route.packageName);
@@ -193,13 +193,55 @@ public final class LinkRulesTest {
         assertEquals(new org.json.JSONArray(rules).toString(), LinkRules.reorder(moved, List.of(1, 0, 2)));
     }
     @Test(expected = IllegalArgumentException.class) public void reorderRejectsMissingOrDuplicateIndices() throws Exception {
-        LinkRules.reorder(LinkRules.DEFAULTS, java.util.Collections.nCopies(19, 0));
+        LinkRules.reorder(LinkRules.DEFAULTS, java.util.Collections.nCopies(23, 0));
     }
     @Test public void newRuleGoesBeforeExplicitBrowser() throws Exception {
         org.json.JSONObject added = new org.json.JSONObject().put("type", "domain").put("pattern", "example.org").put("package", "com.example.app");
         String rules = LinkRules.appendRule(LinkRules.DEFAULTS, added);
         assertEquals("com.example.app", LinkRules.resolve("https://example.org", LinkRules.parse(rules)).packageName);
-        assertEquals("网页浏览器", LinkRules.parse(rules).get(19).name);
+        assertEquals("网页浏览器", LinkRules.parse(rules).get(23).name);
+    }
+
+    @Test public void additionalCloudPresetsMatchSharesBeforeBrowser() throws Exception {
+        List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
+        String[][] examples = {
+            {"https://pan.quark.cn/s/example?pwd=test#files", "com.quark.browser", "夸克网盘"},
+            {"http://cloud.189.cn/t/example?code=test", "com.cn21.ecloud", "天翼云盘"},
+            {"https://cloud.189.cn/web/share?code=test", "com.cn21.ecloud", "天翼云盘"},
+            {"https://pan.xunlei.com/s/example?pwd=test#", "com.xunlei.downloadprovider", "迅雷"},
+            {"https://115.com/s/example?password=test", "com.ylmf.androidclient", "115 网盘"},
+            {"https://115cdn.com/s/example", "com.ylmf.androidclient", "115 网盘"}
+        };
+        for (String[] e : examples) {
+            LinkRules.Route route = LinkRules.resolve(e[0], rules);
+            assertEquals(e[1], route.packageName); assertEquals(e[2], route.ruleName); assertEquals(e[0], route.target);
+            assertTrue(route.ruleIndex < rules.size() - 1);
+            assertEquals("网页浏览器", LinkRules.resolve(e[0].replaceFirst("(?i)(https?://[^/]+)", "$1.evil.example"), rules).ruleName);
+        }
+        assertEquals("网页浏览器", LinkRules.resolve("https://example.org/?next=https://pan.quark.cn/s/test", rules).ruleName);
+        assertEquals("网页浏览器", LinkRules.resolve("https://other189.cn/t/test", rules).ruleName);
+    }
+    @Test public void additionalCloudMigrationPreservesExistingOrderEditsAndDisabledBrowser() throws Exception {
+        org.json.JSONArray old = new org.json.JSONArray(LinkRules.DEFAULTS);
+        for (int i = 21; i >= 18; i--) old.remove(i);
+        old.getJSONObject(0).put("name", "我的 GitHub").put("enabled", false);
+        old.getJSONObject(18).put("enabled", false);
+        String saved = old.toString(), upgraded = LinkRules.addMoreCloudDefaults(saved);
+        List<LinkRules.Rule> rules = LinkRules.parse(upgraded);
+        assertEquals(23, rules.size()); assertEquals("我的 GitHub", rules.get(0).name); assertFalse(rules.get(0).enabled);
+        assertEquals("网页浏览器", rules.get(22).name); assertFalse(rules.get(22).enabled);
+        for (int i = 0; i < 18; i++) assertEquals(old.getJSONObject(i).toString(), new org.json.JSONArray(upgraded).getJSONObject(i).toString());
+        assertEquals(upgraded, LinkRules.addMoreCloudDefaults(upgraded));
+    }
+    @Test public void additionalCloudMigrationDoesNotRestoreDeletedOlderPresetsOrBrowser() throws Exception {
+        List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.addMoreCloudDefaults("[]"));
+        assertEquals(4, rules.size());
+        assertEquals("夸克网盘", rules.get(0).name); assertEquals("115 网盘", rules.get(3).name);
+        assertNull(LinkRules.resolve("https://example.org", rules));
+        assertNull(LinkRules.resolve("https://www.alipan.com/s/test", rules));
+        org.json.JSONArray custom = new org.json.JSONArray(LinkRules.addMoreCloudDefaults("[]"));
+        custom.getJSONObject(0).put("name", "自定义夸克").put("enabled", false);
+        assertEquals(custom.toString(), LinkRules.addMoreCloudDefaults(custom.toString()));
     }
 
 }

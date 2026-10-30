@@ -7,7 +7,7 @@ import java.util.Date;
 import java.util.Locale;
 
 final class Prefs {
-    static final int DEFAULT_RULES_REVISION = 3;
+    static final int DEFAULT_RULES_REVISION = 4;
     static SharedPreferences get(Context c) { return c.getSharedPreferences("settings", Context.MODE_PRIVATE); }
     static String rules(Context c) { return get(c).getString("rules", LinkRules.DEFAULTS); }
     static void ensureDefaultRules(Context c) {
@@ -19,7 +19,8 @@ final class Prefs {
             if (p.contains("rules")) {
                 if (revision == 0) rules = LinkRules.addMissingDefaults(rules);
                 else if (revision == 1) rules = LinkRules.addPinduoduoDefault(rules);
-                rules = LinkRules.addCloudDefaults(rules);
+                if (revision < 3) rules = LinkRules.addCloudDefaults(rules);
+                rules = LinkRules.addMoreCloudDefaults(rules);
             }
             p.edit().putString("rules", rules).putInt("default_rules_revision", DEFAULT_RULES_REVISION).apply();
         } catch (Exception e) { status(c, "默认规则更新失败 · 已保留原规则"); }

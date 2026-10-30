@@ -19,14 +19,14 @@ public final class ConfigBackupTest {
         assertFalse(settings.getBoolean("hide_recent"));
         for (String forbidden : new String[]{"monitor_wanted", "prompt_active", "PRIVATE_FIXTURE", "TEST_KEY_ONLY", "unknown_api_key"})
             assertFalse(backup.toString().contains(forbidden));
-        assertEquals(19, restored.getJSONArray("rules").length());
+        assertEquals(23, restored.getJSONArray("rules").length());
     }
     @Test public void mergeKeepsLocalPriorityAndDisabledEditsAndAppendsOnlyNewMatches() throws Exception {
         JSONArray rules = document().getJSONArray("rules");
         JSONObject localRule = new JSONObject(rules.getJSONObject(0).toString()).put("name", "本机修改").put("enabled", false);
         String current = new JSONArray().put(localRule).toString();
         JSONArray merged = new JSONArray(ConfigBackup.importRules(current, rules, true));
-        assertEquals(19, merged.length()); assertEquals("本机修改", merged.getJSONObject(0).getString("name"));
+        assertEquals(23, merged.length()); assertEquals("本机修改", merged.getJSONObject(0).getString("name"));
         assertFalse(merged.getJSONObject(0).getBoolean("enabled"));
         assertEquals(merged.toString(), ConfigBackup.importRules(merged.toString(), rules, true));
         assertEquals(rules.toString(), ConfigBackup.importRules(current, rules, false));
@@ -70,7 +70,7 @@ public final class ConfigBackupTest {
         JSONArray imported = document().getJSONArray("rules");
         assertThrows(IllegalArgumentException.class, () -> ConfigBackup.importRules(local.toString(), imported, true));
         assertEquals(100, local.length());
-        assertEquals(19, new JSONArray(ConfigBackup.importRules(local.toString(), imported, false)).length());
+        assertEquals(23, new JSONArray(ConfigBackup.importRules(local.toString(), imported, false)).length());
     }
     @Test public void rejectsInvalidRegexTooManyRulesAndOversizedUtf8() throws Exception {
         JSONObject invalid = document();

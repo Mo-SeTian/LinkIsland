@@ -197,6 +197,7 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
 @Composable
 private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<Int>) -> Unit) {
     val rules = remember(json) { JSONArray(json).let { array -> List(array.length()) { array.getJSONObject(it) } } }
+    var sorting by rememberSaveable { mutableStateOf(false) }
     val order = remember(json) { rules.indices.toList().toMutableStateList() }
     val list = rememberLazyListState()
     var dragged by remember(json) { mutableStateOf<Int?>(null) }
@@ -213,6 +214,8 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
         }
         dragged = null
     }
+    fun exitSorting() { finish(true); sorting = false }
+    BackHandler(sorting) { exitSorting() }
     LaunchedEffect(dragged) {
         val active = dragged ?: return@LaunchedEffect
         var lastFrame = withFrameNanos { it }
@@ -243,11 +246,12 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
     }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { navigate("home") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Back, "返回", Modifier.size(22.dp)) }
-            Text("匹配规则", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-            IconButton(onClick = { navigate("edit:-1") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Add, "添加规则", tint = Accent) }
+            IconButton(onClick = { if (sorting) exitSorting() else navigate("home") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Back, "返回", Modifier.size(22.dp)) }
+            Text(if (sorting) "规则排序" else "匹配规则", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+            if (rules.size > 1) TextButton(if (sorting) "完成" else "排序", { if (sorting) exitSorting() else sorting = true }, colors = ButtonDefaults.textButtonColorsPrimary())
+            if (!sorting) IconButton(onClick = { navigate("edit:-1") }, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Add, "添加规则", tint = Accent) }
         }
-        LazyColumn(state = list, userScrollEnabled = dragged == null, modifier = Modifier.pointerInput(json) {
+        LazyColumn(state = list, userScrollEnabled = dragged == null, modifier = Modifier.then(if (sorting) Modifier.pointerInput(json, sorting) {
             detectDragGesturesAfterLongPress(onDragStart = { position ->
                 val item = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key is Int && position.y >= it.offset && position.y < it.offset + it.size }
                 if (item != null) {
@@ -256,10 +260,10 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
             }, onDragCancel = { finish(true) }, onDragEnd = { finish(false) }) { change, amount ->
                 if (dragged != null) { change.consume(); distance += amount.y }
             }
-        }, contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
+        } else Modifier), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "help") {
-                Note("按住右侧手柄拖动排序，第一条命中生效。\n浏览器规则建议放在最后；没有规则命中时不提示、不跳转。")
+                Note(if (sorting) "长按规则或右侧手柄拖动，松手自动保存。\n点击完成或返回退出排序。" else "按列表顺序匹配，第一条命中生效。\n浏览器规则建议放在最后；没有规则命中时不提示、不跳转。")
                 Spacer(Modifier.height(14.dp))
             }
             if (rules.isEmpty()) item(key = "empty") {
@@ -285,7 +289,7 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
                         endActions = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (rule.optBoolean("enabled", true)) "已启用" else "停用", color = if (rule.optBoolean("enabled", true)) Accent else muted(), fontSize = 12.sp)
-                                Box(Modifier.size(48.dp).semantics {
+                                if (sorting) Box(Modifier.size(48.dp).semantics {
                                     contentDescription = "拖动排序：$name"
                                     customActions = listOf(-1 to "上移", 1 to "下移").mapNotNull { (delta, label) ->
                                         val position = order.indexOf(index)
@@ -298,7 +302,7 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
                         }, onClick = { if (dragged == null) navigate("edit:$index") })
                 }
             }
-            item(key = "add") { TextButton("添加规则", { navigate("edit:-1") }, Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary()) }
+            if (!sorting) item(key = "add") { TextButton("添加规则", { navigate("edit:-1") }, Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary()) }
         }
     }
 }
