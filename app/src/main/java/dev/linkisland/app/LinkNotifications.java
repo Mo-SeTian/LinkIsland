@@ -33,28 +33,33 @@ final class LinkNotifications {
             .addAction(new Notification.Action.Builder(null, "停止监听", stop).build()).build();
     }
     static void show(Context c, String url) {
+        String id = JumpLog.begin(c, "识别", "已识别网页链接", url, "pending");
         try {
+            String previous = Prefs.get(c).getString("prompt_log_id", "");
+            if (Prefs.get(c).getBoolean("prompt_active", false))
+                JumpLog.step(c, previous, "提示", "提示被新链接替换", "replaced");
             PromptSafety.cancel(c);
             channels(c);
             int seconds = Prefs.promptSeconds(c);
             LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
             String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
-            JumpLog.add(c, "识别", route.ruleName.isEmpty() ? "未命中规则，使用" + label
-                : "命中规则「" + route.ruleName + "」，目标：" + label, url);
+            JumpLog.step(c, id, "匹配", route.ruleName.isEmpty() ? "未命中规则，使用" + label
+                : "命中规则「" + route.ruleName + "」，目标：" + label, "");
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (!nm.areNotificationsEnabled() || nm.getNotificationChannel(PROMPTS).getImportance() == NotificationManager.IMPORTANCE_NONE) {
                 Prefs.status(c, "提示被关闭 · 请开启通知权限和链接跳转提示通道");
-                JumpLog.add(c, "提示", "通知权限或提示通道关闭，未发送", url);
+                JumpLog.step(c, id, "提示", "通知权限或提示通道关闭，未发送", "failed");
                 return;
             }
             Intent open = new Intent(c, OpenLinkActivity.class).putExtra("original", route.original)
-                .putExtra("target", route.target).putExtra("package", route.packageName)
+                .putExtra("target", route.target).putExtra("package", route.packageName).putExtra("log_id", id)
                 // An empty-affinity task must never bring MainActivity above the source app.
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             // Unique identity means an older tap can never be rebound to a newly copied link.
             open.setData(Uri.parse("linkisland:prompt/" + java.util.UUID.randomUUID()));
             PendingIntent pi = PendingIntent.getActivity(c, 3, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_ONE_SHOT);
-            PendingIntent dismiss = PendingIntent.getBroadcast(c, 4, new Intent(c, DismissReceiver.class), PendingIntent.FLAG_IMMUTABLE);
+            PendingIntent dismiss = PendingIntent.getBroadcast(c, 4, new Intent(c, DismissReceiver.class)
+                .putExtra("log_id", id).setData(Uri.parse("linkisland:dismiss/" + id)), PendingIntent.FLAG_IMMUTABLE);
             Notification.Action openAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_link), "打开", pi).build();
             Notification.Action dismissAction = new Notification.Action.Builder(null, "忽略", dismiss).build();
             String title = "使用 " + label + " 打开？";
@@ -101,13 +106,13 @@ final class LinkNotifications {
                 }
             }
             try {
-                PromptSafety.arm(c, useIsland, seconds * 1000L);
+                PromptSafety.arm(c, useIsland, seconds * 1000L, id);
                 nm.notify(PROMPT_ID, notification);
             } catch (RuntimeException e) {
                 PromptSafety.cancel(c);
                 if (!useIsland) throw e;
                 PromptSafety.disableIsland(c, "超级岛通知发送异常 · 已改用普通通知");
-                PromptSafety.arm(c, false, seconds * 1000L);
+                PromptSafety.arm(c, false, seconds * 1000L, id);
                 nm.notify(PROMPT_ID, ordinary);
                 useIsland = false;
                 fallback = " · 超级岛发送异常，已暂停";
@@ -115,12 +120,12 @@ final class LinkNotifications {
             Prefs.status(c, useIsland
                 ? "已发送岛协议通知 · 实际展示请看手机，未授权时可能退化为普通通知"
                 : "已发送普通通知" + fallback);
-            JumpLog.add(c, "提示", (useIsland ? "已提交超级岛通知" : "已发送普通通知" + fallback)
-                + " · " + seconds + " 秒后自动消失", url);
+            JumpLog.step(c, id, "提示", (useIsland ? "已提交超级岛通知" : "已发送普通通知" + fallback)
+                + " · " + seconds + " 秒后自动消失", "");
         } catch (Exception e) {
             try { PromptSafety.cancel(c); } catch (RuntimeException ignored) { }
             Prefs.status(c, "规则或通知处理失败 · " + ClipboardBridge.causeName(e));
-            JumpLog.add(c, "失败", "规则或通知处理失败 · " + ClipboardBridge.causeName(e), url);
+            JumpLog.step(c, id, "失败", "规则或通知处理失败 · " + ClipboardBridge.causeName(e), "failed");
         }
     }
     static String URIHost(String url) { return java.net.URI.create(url).getHost(); }

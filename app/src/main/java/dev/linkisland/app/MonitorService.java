@@ -56,7 +56,7 @@ public final class MonitorService extends Service {
     private final IClipboardCallback callback = new IClipboardCallback.Stub() {
         @Override public void onHeartbeat() { main.post(heartbeatReceived); }
         @Override public void onRecognition(String result) {
-            main.post(() -> { if (alive) JumpLog.add(MonitorService.this, "识别", result, null); });
+            main.post(() -> { if (alive) JumpLog.recognition(MonitorService.this, result); });
         }
         @Override public void onLink(String url) { main.post(() -> { if (alive) LinkNotifications.show(MonitorService.this, url); }); }
         @Override public void onDiagnostics(String diagnostics) {

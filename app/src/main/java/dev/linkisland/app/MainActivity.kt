@@ -46,6 +46,15 @@ class MainActivity : ComponentActivity() {
     private var privilegedOpen by mutableStateOf(false)
     private var promptSeconds by mutableIntStateOf(30)
     private var jumpLog by mutableStateOf("[]")
+    private var backupBusy by mutableStateOf(false)
+    private var backupMessage by mutableStateOf("")
+    private var pendingBackup by mutableStateOf<JSONObject?>(null)
+    private val exportDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri != null) writeBackup(uri)
+    }
+    private val importDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) readBackup(uri)
+    }
     private val logListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         if (screen == "logs") jumpLog = JumpLog.read(this)
     }
@@ -99,7 +108,11 @@ class MainActivity : ComponentActivity() {
                         Prefs.status(this, "监听已停止")
                     } else requestStart()
                 },
-                onTest = ::testLink,
+                onTest = ::testLink, onPreview = ::previewLink,
+                backupBusy = backupBusy, backupMessage = backupMessage, pendingBackup = pendingBackup,
+                onExport = { exportDocument.launch("LinkIsland-配置备份-${BuildConfig.VERSION_NAME}.json") },
+                onImport = { importDocument.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                onApplyBackup = ::applyBackup, onCancelBackup = { pendingBackup = null; backupMessage = "已取消本次导入" },
                 onIsland = { preferences.edit().putBoolean("island", it).apply() },
                 onProbe = {
                     if (running) startService(Intent(this, MonitorService::class.java).setAction("CHECK"))
@@ -240,6 +253,100 @@ class MainActivity : ComponentActivity() {
             toast("已发送，请查看超级岛或通知栏")
             null
         } catch (_: Exception) { "规则无法处理这个链接，请检查改写模板" }
+    }
+    private fun previewLink(text: String): RulePreview {
+        val url = LinkRules.extract(text) ?: throw IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接")
+        val route = try { LinkRules.resolve(url, LinkRules.parse(rules)) }
+            catch (_: Exception) { throw IllegalArgumentException("规则无法处理此链接，请检查正则或改写模板") }
+        val rule = if (route.ruleIndex < 0) "未命中规则，使用浏览器兜底" else "第 ${route.ruleIndex + 1} 条 · ${route.ruleName}"
+        var pkg = route.packageName
+        var label = route.label
+        val capability: String
+        if (pkg.isEmpty()) {
+            val available = BrowserAccess.installed(this)
+            pkg = BrowserAccess.effectivePackage(this, available)
+            label = BrowserAccess.label(this)
+            capability = if (available.isEmpty()) "未检测到可用浏览器" else if (pkg.isEmpty()) "打开时选择浏览器" else "浏览器可用"
+        } else {
+            capability = try {
+                val app = packageManager.getApplicationInfo(pkg, 0)
+                label = app.loadLabel(packageManager).toString()
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(route.target)).setPackage(pkg).addCategory(Intent.CATEGORY_BROWSABLE)
+                val resolved = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_ALL)
+                when {
+                    !app.enabled -> "目标应用已停用"
+                    resolved != null && resolved.activityInfo.exported -> "已安装，支持直接处理此链接"
+                    PddLinks.nativeTarget(route.target, pkg) != null -> "已安装，打开时可尝试原生协议"
+                    XhsLinks.supports(route.target, pkg) -> "已安装，必要时在点击后解析短链"
+                    else -> "已安装，可能不支持此页面"
+                }
+            } catch (_: PackageManager.NameNotFoundException) { "未检测到目标应用" }
+            catch (_: RuntimeException) { "无法确认目标应用状态" }
+        }
+        return RulePreview(rule, label, pkg, url, route.target, capability)
+    }
+    private fun writeBackup(uri: Uri) {
+        val document = try { ConfigBackup.create(Prefs.rules(this), preferences.all, BuildConfig.VERSION_NAME).toString(2) }
+            catch (_: Exception) { backupMessage = "无法备份，请检查当前规则与设置"; return }
+        backupBusy = true
+        backupMessage = ""
+        Thread({
+            val message = try {
+                val bytes = document.toByteArray(Charsets.UTF_8)
+                require(bytes.size <= ConfigBackup.MAX_BYTES)
+                contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) } ?: error("No output stream")
+                "备份已保存"
+            } catch (_: Exception) { "备份失败，请检查文件保存位置" }
+            runOnUiThread { if (!isDestroyed) { backupMessage = message; backupBusy = false } }
+        }, "config-export").start()
+    }
+    private fun readBackup(uri: Uri) {
+        backupBusy = true
+        backupMessage = ""
+        pendingBackup = null
+        Thread({
+            try {
+                val bytes = java.io.ByteArrayOutputStream()
+                contentResolver.openInputStream(uri)?.use { input ->
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val size = input.read(buffer)
+                        if (size < 0) break
+                        require(bytes.size() + size <= ConfigBackup.MAX_BYTES)
+                        bytes.write(buffer, 0, size)
+                    }
+                } ?: error("No input stream")
+                val document = ConfigBackup.parse(bytes.toString("UTF-8"))
+                runOnUiThread { if (!isDestroyed) { pendingBackup = document; backupMessage = "备份已校验，请预览后选择导入方式"; backupBusy = false } }
+            } catch (_: Exception) {
+                runOnUiThread { if (!isDestroyed) { backupMessage = "无法导入：文件格式、版本或字段不正确，或超过 1 MB"; backupBusy = false } }
+            }
+        }, "config-import").start()
+    }
+    private fun applyBackup(merge: Boolean): String? {
+        val document = pendingBackup ?: return "请先选择备份文件"
+        return try {
+            val validated = ConfigBackup.parse(document.toString())
+            val imported = ConfigBackup.importRules(Prefs.rules(this), validated.getJSONArray("rules"), merge)
+            val settings = validated.getJSONObject("settings")
+            MonitorService.stopListening(this)
+            PromptSafety.cancel(this)
+            val edit = preferences.edit()
+            if (!merge) (ConfigBackup.BOOLEAN_KEYS + setOf("mode", "browser", "prompt_seconds")).forEach { edit.remove(it) }
+            settings.keys().forEach { key ->
+                when (val value = settings.get(key)) {
+                    is Boolean -> edit.putBoolean(key, value)
+                    is Int -> edit.putInt(key, value)
+                    is String -> edit.putString(key, value)
+                }
+            }
+            check(edit.putString("rules", imported).putInt("default_rules_revision", 2).commit())
+            pendingBackup = null
+            backupMessage = "导入完成。请检查授权后重新开启监听。"
+            refresh(); refreshBrowsers(); applyTaskVisibility()
+            null
+        } catch (e: IllegalArgumentException) { e.message ?: "配置不正确，未导入" }
+        catch (_: Exception) { "导入失败，请检查备份文件后重试" }
     }
     private fun saveRule(index: Int, rule: JSONObject): String? {
         if (rule.optString("pattern").isBlank()) return "匹配内容不能为空"

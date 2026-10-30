@@ -5,6 +5,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -31,6 +32,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONArray
@@ -50,6 +52,8 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 
 private val Accent = Color(0xFF287EFF)
 private val PageBackground = Color(0xFFF5F6F8)
+internal data class RulePreview(val rule: String, val app: String, val packageName: String,
+    val original: String, val target: String, val capability: String)
 
 @Composable
 internal fun LinkIslandUi(
@@ -62,7 +66,10 @@ internal fun LinkIslandUi(
     device: String, shizukuPrompt: Boolean, permissions: List<PermissionItem>,
     onPermission: (String) -> Unit, onRefreshPermissions: () -> Unit,
     onNavigate: (String) -> Unit, onMode: (Int) -> Unit, onToggle: () -> Unit,
-    onTest: (String) -> String?, onIsland: (Boolean) -> Unit,
+    onTest: (String) -> String?, onPreview: (String) -> RulePreview,
+    backupBusy: Boolean, backupMessage: String, pendingBackup: JSONObject?,
+    onExport: () -> Unit, onImport: () -> Unit, onApplyBackup: (Boolean) -> String?, onCancelBackup: () -> Unit,
+    onIsland: (Boolean) -> Unit,
     onProbe: () -> Unit, onNotificationSettings: () -> Unit, onRefresh: () -> Unit,
     onSaveRule: (Int, JSONObject) -> String?, onDeleteRule: (Int) -> Unit,
     installedApps: () -> List<Pair<String, String>>,
@@ -73,7 +80,7 @@ internal fun LinkIslandUi(
     else lightColorScheme(primary = Accent, surface = PageBackground, background = PageBackground, surfaceContainer = Color.White)
     MiuixTheme(colors = colors) {
         BackHandler(screen != "home") {
-            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics")) "settings" else "home")
+            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics", "backup")) "settings" else "home")
         }
         Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).imePadding()) {
@@ -86,13 +93,14 @@ internal fun LinkIslandUi(
                             val initial = JSONArray(rulesJson).optJSONObject(index) ?: JSONObject()
                             RuleEditor(index, initial, { onNavigate("rules") }, onSaveRule, onDeleteRule, installedApps)
                         }
-                        page == "test" -> TestPage(island, promptSeconds, onIsland, onTest, { onNavigate("home") })
+                        page == "test" -> TestPage(island, promptSeconds, onIsland, onTest, onPreview, { onNavigate("home") })
                         page == "browsers" -> BrowserPage(browsers, browserChoice, onBrowser, { onNavigate("settings") })
                         page == "permissions" -> PermissionsPage(permissions, onPermission, onRefreshPermissions, { onNavigate("settings") })
                         page == "diagnostics" -> DiagnosticsPage(running, status, capture, device, onProbe, onRefresh, { onNavigate("settings") })
                         page == "logs" -> LogsPage(jumpLog, onClearLog, { onNavigate("home") })
+                        page == "backup" -> BackupPage(rulesJson, backupBusy, backupMessage, pendingBackup, onExport, onImport, onApplyBackup, onCancelBackup, { onNavigate("settings") })
                         else -> SettingsPage(hideRecent, autoRestart, privilegedOpen, onHideRecent, onAutoRestart, onPrivilegedOpen, browserLabel, { onNavigate("browsers") }, mode, onMode, running, island, onIsland, promptSeconds, onPromptSeconds,
-                            onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("home") })
+                            onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("backup") }, { onNavigate("home") })
                     }
                 }
                 SuperDialog(show = shizukuPrompt, title = "请先启动 Shizuku",
@@ -290,14 +298,38 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
 }
 
 @Composable
-private fun TestPage(island: Boolean, seconds: Int, onIsland: (Boolean) -> Unit, onTest: (String) -> String?, back: () -> Unit) {
+private fun TestPage(island: Boolean, seconds: Int, onIsland: (Boolean) -> Unit, onTest: (String) -> String?, onPreview: (String) -> RulePreview, back: () -> Unit) {
     var link by rememberSaveable { mutableStateOf("https://github.com/LinkSheet/LinkSheet") }
     var error by rememberSaveable { mutableStateOf("") }
+    var preview by remember { mutableStateOf<RulePreview?>(null) }
     DetailPage("链接测试", back) {
         Text("先检查一次跳转", fontSize = 22.sp, fontWeight = FontWeight.Bold)
         Note("输入链接，测试提示和目标 App。\n无需开启后台监听。")
         Spacer(Modifier.height(24.dp))
-        Field("输入或粘贴网页链接", link, { link = it; error = "" }, singleLine = false, url = true)
+        Field("输入或粘贴网页链接", link, { link = it; error = ""; preview = null }, singleLine = false, url = true)
+        Spacer(Modifier.height(12.dp))
+        TextButton("预览命中结果", {
+            error = ""
+            preview = try { onPreview(link) } catch (e: IllegalArgumentException) { error = e.message ?: "无法预览此链接"; null }
+        }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
+        Note("预览只在本机计算，不发送通知、不跳转、不联网。")
+        preview?.let { result ->
+            Spacer(Modifier.height(16.dp))
+            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("命中结果", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                        Text(result.rule, fontSize = 14.sp)
+                        Text("目标：${result.app}" + if (result.packageName.isEmpty()) "" else "\n${result.packageName}", fontSize = 14.sp)
+                        Text(result.capability, color = Accent, fontSize = 13.sp)
+                        Caption("识别到的链接")
+                        Text(result.original, fontSize = 13.sp, lineHeight = 19.sp)
+                        Caption("改写后的目标")
+                        Text(result.target, fontSize = 13.sp, lineHeight = 19.sp)
+                    }
+                }
+            }
+        }
         Spacer(Modifier.height(20.dp))
         Card(Modifier.fillMaxWidth()) {
             SuperSwitch(checked = island, onCheckedChange = onIsland, title = "小米超级岛",
@@ -352,7 +384,7 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
     onHideRecent: (Boolean) -> Unit, onAutoRestart: (Boolean) -> Unit, onPrivilegedOpen: (Boolean) -> Unit,
     browserLabel: String, chooseBrowser: () -> Unit, mode: Int, onMode: (Int) -> Unit, running: Boolean,
     island: Boolean, onIsland: (Boolean) -> Unit, seconds: Int, onSeconds: (Int) -> Unit,
-    notificationSettings: () -> Unit, diagnostics: () -> Unit, managePermissions: () -> Unit, back: () -> Unit) {
+    notificationSettings: () -> Unit, diagnostics: () -> Unit, managePermissions: () -> Unit, backup: () -> Unit, back: () -> Unit) {
     var about by remember { mutableStateOf(false) }
     DetailPage("设置", back) {
         Caption("后台监听")
@@ -393,6 +425,8 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
             SuperArrow(title = "运行诊断", summary = "查看监听状态、识别计数与设备信息", onClick = diagnostics)
             RowDivider()
             SuperArrow(title = "授权管理", summary = "查看通知、电池优化与自启动等权限", onClick = managePermissions)
+            RowDivider()
+            SuperArrow(title = "备份与恢复", summary = "导出配置，预览后合并或覆盖导入", onClick = backup)
             RowDivider()
             SuperArrow(title = "关于链接岛", summary = BuildConfig.VERSION_NAME, onClick = { about = true })
         }
@@ -435,31 +469,136 @@ private fun DiagnosticsPage(running: Boolean, status: String, capture: String, d
 }
 
 @Composable
+private fun BackupPage(current: String, busy: Boolean, message: String, pending: JSONObject?, export: () -> Unit,
+    chooseImport: () -> Unit, apply: (Boolean) -> String?, cancel: () -> Unit, back: () -> Unit) {
+    var merge by remember(pending) { mutableStateOf(true) }
+    var expanded by remember(pending) { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    var error by remember(pending) { mutableStateOf("") }
+    DetailPage("备份与恢复", back) {
+        Note("备份包含规则和普通设置，不包含系统授权、运行状态、剪贴板内容或跳转日志。通过系统文件选择器保存和读取 JSON 文件。")
+        Note("文件为明文 JSON，包含自定义规则中的匹配内容和链接模板，请保存到合适的位置。")
+        Spacer(Modifier.height(18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton("导出配置", export, Modifier.weight(1f), enabled = !busy)
+            TextButton("选择备份文件", chooseImport, Modifier.weight(1f), enabled = !busy, colors = ButtonDefaults.textButtonColorsPrimary())
+        }
+        if (busy) Note("正在处理文件…")
+        if (message.isNotEmpty()) Note(message)
+        pending?.let { document ->
+            val incoming = document.getJSONArray("rules")
+            val settings = document.getJSONObject("settings")
+            var planError = ""
+            val planned = try { JSONArray(ConfigBackup.importRules(current, incoming, merge)).length() }
+                catch (e: Exception) { planError = if (e is IllegalArgumentException) e.message ?: "无法合并" else "当前规则异常，无法合并"; -1 }
+            Spacer(Modifier.height(22.dp))
+            Card(Modifier.fillMaxWidth()) {
+                SuperDropdown(items = listOf("合并导入", "覆盖导入"), selectedIndex = if (merge) 0 else 1,
+                    title = "导入方式", onSelectedIndexChange = { merge = it == 0; error = "" })
+            }
+            val localCount = JSONArray(current).length()
+            Note("本机 ${localCount} 条，备份 ${incoming.length()} 条。" + if (planned >= 0) "导入后 ${planned} 条。" else "")
+            Note(if (merge) "同匹配方式和匹配内容的规则保留本机版本，新规则追加到末尾；备份中的普通设置会应用。"
+                else "用备份替换当前规则与普通设置；备份未包含的普通设置恢复默认值。")
+            if (merge && planned >= 0) Note("新增 ${planned - localCount} 条，跳过重复 ${incoming.length() - (planned - localCount)} 条。")
+            Spacer(Modifier.height(12.dp))
+            Card(Modifier.fillMaxWidth()) {
+                SuperArrow(title = "预览备份规则", summary = "${incoming.length()} 条 · 点击${if (expanded) "收起" else "展开"}", onClick = { expanded = !expanded })
+                if (expanded) Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    for (index in 0 until incoming.length()) {
+                        val rule = incoming.getJSONObject(index)
+                        Text("${index + 1}. ${rule.optString("name", "自定义规则")} · ${if (rule.optBoolean("enabled", true)) "已启用" else "停用"}", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("${typeLabel(rule.optString("type", "contains"))}：${rule.optString("pattern")}\n目标：${rule.optString("package").ifEmpty { "浏览器" }}" +
+                            if (rule.optString("replacement").isNotEmpty()) "\n改写：${rule.optString("replacement")}" else "", fontSize = 12.sp, color = muted(), lineHeight = 18.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+            Caption("将应用的普通设置 · ${settings.length()} 项")
+            Note(settings.keys().asSequence().map { key -> backupSetting(key, settings.get(key)) }.joinToString("\n"))
+            Note("导入后会停止当前监听，请检查授权后重新开启。导入不会恢复系统权限。")
+            if (planError.isNotEmpty() || error.isNotEmpty()) Text(planError.ifEmpty { error }, Modifier.padding(top = 12.dp), color = MiuixTheme.colorScheme.error, fontSize = 13.sp)
+            Spacer(Modifier.height(16.dp))
+            TextButton("确认导入配置", { confirm = true }, Modifier.fillMaxWidth(), enabled = !busy && planned >= 0,
+                colors = ButtonDefaults.textButtonColorsPrimary())
+            TextButton("取消本次导入", cancel, Modifier.fillMaxWidth())
+        }
+    }
+    SuperDialog(show = confirm, title = if (merge) "合并导入配置？" else "覆盖当前配置？",
+        summary = "导入前可返回预览。确认后会停止监听并应用所选配置。", onDismissRequest = { confirm = false }) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton("返回预览", { confirm = false }, Modifier.weight(1f))
+            TextButton("导入", { error = apply(merge) ?: ""; confirm = false }, Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
+        }
+    }
+}
+
+private fun backupSetting(key: String, value: Any): String {
+    val label = when (key) {
+        "mode" -> "授权方式"; "browser" -> "网页浏览器"; "prompt_seconds" -> "提示停留时间"
+        "island" -> "小米超级岛"; "hide_recent" -> "隐藏最近任务"; "auto_restart" -> "监听自动恢复"
+        else -> "使用授权服务跳转"
+    }
+    val text = when {
+        value is Boolean -> if (value) "开启" else "关闭"
+        key == "mode" -> if (value == 1) "Root" else "Shizuku"
+        key == "prompt_seconds" -> "$value 秒"
+        value == "" -> "跟随系统默认"
+        value == "ask" -> "每次询问"
+        else -> value.toString()
+    }
+    return "$label：$text"
+}
+
+@Composable
 private fun LogsPage(json: String, clear: () -> Unit, back: () -> Unit) {
-    val entries = remember(json) { JSONArray(json).let { array ->
-        (array.length() - 1 downTo 0).map { array.getJSONObject(it) }
-    } }
+    var failuresOnly by rememberSaveable { mutableStateOf(false) }
+    val all = remember(json) { JSONArray(json).let { array -> (array.length() - 1 downTo 0).map { array.getJSONObject(it) } } }
+    val entries = remember(all, failuresOnly) { if (failuresOnly) all.filter { it.optString("status") == "failed" } else all }
     val format = remember { java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.SIMPLIFIED_CHINESE) }
+    val time = remember { java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.SIMPLIFIED_CHINESE) }
     var confirm by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Back, "返回", Modifier.size(22.dp)) }
             Text("跳转日志", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-            TextButton("清空", { confirm = true }, enabled = entries.isNotEmpty())
+            TextButton("清空", { confirm = true }, enabled = all.isNotEmpty())
         }
-        Text("仅本机保存最近 100 条；不记录完整链接、参数和剪贴板正文。", Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+        Text("最近 100 次，仅存域名与处理结果；点击记录查看完整过程。", Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
             color = muted(), fontSize = 12.sp, lineHeight = 18.sp)
+        Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(if (failuresOnly) "失败 ${entries.size} 次" else "共 ${all.size} 次", Modifier.weight(1f), color = muted(), fontSize = 12.sp)
+            TextButton(if (failuresOnly) "显示全部" else "仅看失败", { failuresOnly = !failuresOnly })
+        }
         if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("暂无记录，复制链接或发送测试提示后可在此查看", Modifier.padding(28.dp), color = muted(), textAlign = TextAlign.Center)
+            Text(if (failuresOnly) "暂无失败记录" else "暂无记录，复制链接或发送测试提示后可在此查看", Modifier.padding(28.dp), color = muted(), textAlign = TextAlign.Center)
         } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(entries) { entry ->
-                Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp, insideMargin = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
+            items(entries, key = { it.getString("id") }) { entry ->
+                var expanded by remember(entry.getString("id")) { mutableStateOf(false) }
+                val events = entry.getJSONArray("events")
+                val state = entry.optString("status")
+                val label = when (state) {
+                    "failed" -> "失败"; "requested" -> "已请求打开"; "ignored" -> "已忽略"; "expired" -> "已到期"
+                    "replaced" -> "已被替换"; "skipped" -> "已跳过"; "legacy" -> "历史记录"; "cancelled" -> "已撤销"
+                    "opening" -> "跳转中"; else -> "待处理"
+                }
+                Card(Modifier.fillMaxWidth().clickable { expanded = !expanded }, cornerRadius = 12.dp, insideMargin = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(entry.optString("stage"), Modifier.weight(1f), color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(label, Modifier.weight(1f), color = if (state == "failed") MiuixTheme.colorScheme.error else Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Text(format.format(java.util.Date(entry.optLong("time"))), color = muted(), fontSize = 11.sp)
                     }
-                    Text(entry.optString("detail"), Modifier.padding(top = 4.dp), fontSize = 14.sp, lineHeight = 20.sp)
-                    if (entry.optString("host").isNotEmpty()) Text(entry.optString("host"), Modifier.padding(top = 2.dp), color = muted(), fontSize = 12.sp, lineHeight = 16.sp)
+                    Text(entry.optString("detail"), Modifier.padding(top = 4.dp), fontSize = 14.sp, lineHeight = 20.sp,
+                        maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+                    Row(Modifier.padding(top = 2.dp)) {
+                        Text(entry.optString("host"), Modifier.weight(1f), color = muted(), fontSize = 12.sp)
+                        Text("${events.length()} 步 · ${if (expanded) "收起" else "展开"}", color = muted(), fontSize = 11.sp)
+                    }
+                    if (expanded) Column(Modifier.padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (index in 0 until events.length()) {
+                            val event = events.getJSONObject(index)
+                            Text("${time.format(java.util.Date(event.optLong("time")))} · ${event.optString("stage")}\n${event.optString("detail")}", fontSize = 12.sp, lineHeight = 18.sp, color = muted())
+                        }
+                    }
                 }
             }
         }

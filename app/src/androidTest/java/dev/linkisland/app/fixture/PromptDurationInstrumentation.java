@@ -56,7 +56,7 @@ public final class PromptDurationInstrumentation extends Instrumentation {
             Thread.sleep(500);
             for (StatusBarNotification n : manager.getActiveNotifications()) if (n.getId() == 101)
                 throw new AssertionError("Ignore did not remove protected prompt");
-            String log = c.getSharedPreferences("jump_log", Context.MODE_PRIVATE).getString("entries", "[]");
+            String log = c.getSharedPreferences("jump_log", Context.MODE_PRIVATE).getString("groups", "[]");
             if (!log.contains("example.org") || log.contains("private-path") || log.contains("fixture-secret"))
                 throw new AssertionError("Unsafe or missing recognition log");
             result.putString("result", "PASS ordinary/island Clear-all flags; all timeouts; five-second expiry; Ignore and sanitized logs");

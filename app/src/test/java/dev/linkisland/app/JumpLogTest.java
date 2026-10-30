@@ -1,26 +1,51 @@
 package dev.linkisland.app;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class JumpLogTest {
-    @Test public void storesOnlyHostAndOutcomeWithoutPrivateUrlComponents() throws Exception {
-        String log = JumpLog.append("[]", "识别", "命中拼多多", "https://user:password@example.org/private/note?token=secret#fragment", 1000);
-        assertEquals("example.org", new JSONArray(log).getJSONObject(0).getString("host"));
+    @Test public void oneCopyRetainsItsFullFlowWithoutPrivateUrlComponents() throws Exception {
+        String log = JumpLog.begin("[]", "copy-1", "识别", "已识别网页链接", "https://user:password@example.org/private/note?token=secret#fragment", 1000, "pending");
+        log = JumpLog.step(log, "copy-1", "提示", "已发送提示", 1100, "");
+        log = JumpLog.step(log, "copy-1", "点击", "已点击打开", 1200, "opening");
+        log = JumpLog.step(log, "copy-1", "跳转", "已请求目标应用打开", 1300, "requested");
+        JSONArray groups = new JSONArray(log); JSONObject group = groups.getJSONObject(0);
+        assertEquals(1, groups.length()); assertEquals(4, group.getJSONArray("events").length());
+        assertEquals("example.org", group.getString("host")); assertEquals("requested", group.getString("status"));
         for (String value : new String[]{"user", "password", "/private", "secret", "fragment"}) assertFalse(log.contains(value));
     }
-    @Test public void boundsHistoryAndKeepsNewestEntriesInOrder() throws Exception {
-        String log = "[]";
-        for (int i = 0; i < 120; i++) log = JumpLog.append(log, "跳转", "结果 " + i, null, i * 2000L);
-        JSONArray entries = new JSONArray(log);
-        assertEquals(100, entries.length());
-        assertEquals("结果 20", entries.getJSONObject(0).getString("detail"));
-        assertEquals("结果 119", entries.getJSONObject(99).getString("detail"));
+    @Test public void separateCopiesOnTheSameHostNeverMergeAndLateActionsUpdateTheirOwnGroup() throws Exception {
+        String log = JumpLog.begin("[]", "first", "识别", "第一条", "https://example.org/first", 1000, "pending");
+        log = JumpLog.begin(log, "second", "识别", "第二条", "https://example.org/second", 1100, "pending");
+        log = JumpLog.step(log, "first", "跳转", "第一条失败", 1500, "failed");
+        JSONArray groups = new JSONArray(log);
+        assertEquals(2, groups.length()); assertEquals("failed", groups.getJSONObject(0).getString("status"));
+        assertEquals("pending", groups.getJSONObject(1).getString("status"));
+        assertEquals("第二条", groups.getJSONObject(1).getString("detail"));
     }
-    @Test public void suppressesRapidRetryDuplicatesButAllowsLaterCopies() throws Exception {
-        String log = JumpLog.append("[]", "识别", "系统返回空剪贴板", null, 1000);
-        assertEquals(log, JumpLog.append(log, "识别", "系统返回空剪贴板", null, 1500));
-        assertEquals(2, new JSONArray(JumpLog.append(log, "识别", "系统返回空剪贴板", null, 2500)).length());
+    @Test public void recoveredFallbackStopsAppearingAsFinalFailureAndClearDoesNotResurrectEntries() throws Exception {
+        String log = JumpLog.begin("[]", "id", "识别", "命中规则", null, 1000, "pending");
+        log = JumpLog.step(log, "id", "跳转", "目标不支持", 1100, "failed");
+        log = JumpLog.step(log, "id", "跳转", "已请求浏览器打开", 1200, "requested");
+        assertEquals("requested", new JSONArray(log).getJSONObject(0).getString("status"));
+        assertEquals("[]", JumpLog.step("[]", "id", "跳转", "迟到的操作", 2000, "failed"));
+    }
+    @Test public void boundsCopiesAndEvents() throws Exception {
+        String log = "[]";
+        for (int i = 0; i < 120; i++) log = JumpLog.begin(log, "id" + i, "识别", "结果 " + i, null, i * 2000L, "pending");
+        JSONArray groups = new JSONArray(log); assertEquals(100, groups.length());
+        assertEquals("id20", groups.getJSONObject(0).getString("id"));
+        for (int i = 0; i < 30; i++) log = JumpLog.step(log, "id119", "跳转", "步骤 " + i, 300000 + i, "");
+        groups = new JSONArray(log); assertEquals(20, groups.getJSONObject(99).getJSONArray("events").length());
+    }
+    @Test public void migratesLegacyRecordsWithoutGuessingWhichLinksBelongTogether() throws Exception {
+        JSONArray old = new JSONArray().put(new JSONObject().put("time", 1000).put("stage", "识别").put("detail", "已识别").put("host", "example.org"))
+            .put(new JSONObject().put("time", 1100).put("stage", "跳转").put("detail", "启动失败").put("host", "example.org"));
+        JSONArray groups = new JSONArray(JumpLog.migrate(old.toString()));
+        assertEquals(2, groups.length()); assertEquals("legacy", groups.getJSONObject(0).getString("status"));
+        assertEquals("failed", groups.getJSONObject(1).getString("status"));
+        assertEquals("example.org", groups.getJSONObject(0).getString("host"));
     }
 }

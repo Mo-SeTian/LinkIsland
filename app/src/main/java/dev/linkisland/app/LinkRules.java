@@ -126,16 +126,18 @@ public final class LinkRules {
 
     public static final class Route {
         public final String original, target, packageName, label, ruleName;
-        Route(String original, String target, String packageName, String label, String ruleName) {
-            this.original = original; this.target = target; this.packageName = packageName; this.label = label; this.ruleName = ruleName;
+        public final int ruleIndex;
+        Route(String original, String target, String packageName, String label, String ruleName, int ruleIndex) {
+            this.original = original; this.target = target; this.packageName = packageName; this.label = label; this.ruleName = ruleName; this.ruleIndex = ruleIndex;
         }
     }
     public static Route resolve(String url, List<Rule> rules) {
         if (!isWebUrl(url)) throw new IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接");
-        for (Rule rule : rules) {
+        for (int i = 0; i < rules.size(); i++) {
+            Rule rule = rules.get(i);
             if (rule.matches(url)) return new Route(url, rule.rewrite(url), rule.packageName,
-                rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name);
+                rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name, i);
         }
-        return new Route(url, url, "", "默认浏览器", "");
+        return new Route(url, url, "", "默认浏览器", "", -1);
     }
 }

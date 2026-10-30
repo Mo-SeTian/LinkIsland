@@ -127,4 +127,12 @@ public final class LinkRulesTest {
         assertEquals(saved, LinkRules.addPinduoduoDefault(saved));
     }
 
+    @Test public void previewReportsActualRulePositionAndBrowserFallback() throws Exception {
+        String rules = "[{\"name\":\"停用\",\"type\":\"domain\",\"pattern\":\"example.org\",\"enabled\":false},"
+            + "{\"name\":\"实际命中\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"com.example.app\",\"replacement\":\"example://page\"}]";
+        LinkRules.Route route = LinkRules.resolve("https://example.org/path", LinkRules.parse(rules));
+        assertEquals(1, route.ruleIndex); assertEquals("实际命中", route.ruleName); assertEquals("example://page", route.target);
+        assertEquals(-1, LinkRules.resolve("https://other.example/path", LinkRules.parse(rules)).ruleIndex);
+    }
+
 }
