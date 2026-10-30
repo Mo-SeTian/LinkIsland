@@ -69,7 +69,7 @@ public final class LinkRulesTest {
             {"HTTPS://WWW.BILIBILI.COM/video/test", "tv.danmaku.bili"}
         };
         List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
-        assertEquals(12, rules.size());
+        assertEquals(13, rules.size());
         for (String[] pair : examples) {
             LinkRules.Route route = LinkRules.resolve(pair[0], rules);
             assertEquals(pair[0], pair[1], route.packageName);
@@ -94,10 +94,37 @@ public final class LinkRulesTest {
         assertEquals(upgraded, LinkRules.addMissingDefaults(upgraded));
     }
     @Test public void upgradeDoesNotResurrectDeletedOriginalRuleOrExceedLimit() throws Exception {
-        assertEquals(11, LinkRules.parse(LinkRules.addMissingDefaults("[]")).size());
+        assertEquals(12, LinkRules.parse(LinkRules.addMissingDefaults("[]")).size());
         org.json.JSONArray old = new org.json.JSONArray();
         for (int i = 0; i < 100; i++) old.put(new org.json.JSONObject()
             .put("type", "domain").put("pattern", "example" + i + ".org"));
         assertEquals(100, LinkRules.parse(LinkRules.addMissingDefaults(old.toString())).size());
     }
+    @Test public void pinduoduoMatchesGoodsAndKeepsShareParameters() throws Exception {
+        List<LinkRules.Rule> rules = LinkRules.parse(LinkRules.DEFAULTS);
+        for (String url : new String[]{"https://mobile.yangkeduo.com/goods2.html?ps=example",
+            "https://mobile.pinduoduo.com/goods.html?goods_id=123"}) {
+            LinkRules.Route route = LinkRules.resolve(url, rules);
+            assertEquals("com.xunmeng.pinduoduo", route.packageName);
+            assertEquals("拼多多", route.ruleName);
+            assertEquals(url, route.target);
+        }
+        for (String url : new String[]{"https://yangkeduo.com.evil.example/a", "https://example.org/?next=yangkeduo.com"})
+            assertEquals("", LinkRules.resolve(url, rules).packageName);
+    }
+    @Test public void pinduoduoUpgradeOnlyAddsNewPresetAndKeepsDisabledEdits() throws Exception {
+        String old = "[{\"name\":\"我的规则\",\"type\":\"contains\",\"pattern\":\"goods2\",\"package\":\"com.custom.app\"}]";
+        String upgraded = LinkRules.addPinduoduoDefault(old);
+        List<LinkRules.Rule> rules = LinkRules.parse(upgraded);
+        assertEquals(2, rules.size());
+        assertEquals("我的规则", rules.get(0).name);
+        assertEquals("拼多多", rules.get(1).name);
+        assertEquals("com.custom.app", LinkRules.resolve("https://mobile.yangkeduo.com/goods2.html", rules).packageName);
+        assertEquals(upgraded, LinkRules.addPinduoduoDefault(upgraded));
+        org.json.JSONArray disabled = new org.json.JSONArray(upgraded);
+        disabled.getJSONObject(1).put("enabled", false).put("name", "我的拼多多");
+        String saved = disabled.toString();
+        assertEquals(saved, LinkRules.addPinduoduoDefault(saved));
+    }
+
 }

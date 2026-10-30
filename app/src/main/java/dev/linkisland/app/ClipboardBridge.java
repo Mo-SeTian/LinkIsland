@@ -128,7 +128,7 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
         try {
             ClipData clip = (ClipData) access.read();
             if (clip == null || clip.getItemCount() == 0) {
-                result = "系统返回空剪贴板（可能为空或被限制）";
+                recordResult("系统返回空剪贴板（可能为空或被限制）", source);
                 diagnostics();
                 if (source == MANUAL) report(result);
                 return false;
@@ -136,7 +136,7 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
             ClipDescription desc = clip.getDescription();
             if (desc != null && desc.getExtras() != null
                 && desc.getExtras().getBoolean("android.content.extra.IS_SENSITIVE", false)) {
-                result = "系统标记为敏感内容，已跳过";
+                recordResult("系统标记为敏感内容，已跳过", source);
                 diagnostics();
                 if (source == MANUAL) report(result);
                 return true;
@@ -152,9 +152,10 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
                 if (url == null && item.getUri() != null) url = LinkRules.extract(item.getUri().toString());
             }
             long timestamp = desc == null ? 0 : desc.getTimestamp();
-            result = url != null ? "已识别网页链接"
+            String summary = url != null ? "已识别网页链接"
                 : hasText ? "已读到文本，但未识别 HTTP / HTTPS 链接"
                 : hasUri ? "已读到 URI，但不是网页链接" : "已读到剪贴板，未包含文本或网页 URI";
+            if (url == null) recordResult(summary, source); else result = summary;
             if (source == BASELINE) changes.baseline(url, timestamp);
             else if (changes.shouldPrompt(url, timestamp, android.os.SystemClock.elapsedRealtime(), source == EVENT, source == MANUAL)) {
                 callback.onLink(url);
@@ -164,10 +165,17 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
             if (source == MANUAL && url == null) report(result);
             return true;
         } catch (Exception e) {
-            result = "读取失败 · " + causeName(e);
+            recordResult("读取失败 · " + causeName(e), source);
             diagnostics();
             if (source == MANUAL) report(result);
             return false;
+        }
+    }
+    private void recordResult(String value, int source) {
+        boolean changed = !value.equals(result);
+        result = value;
+        if (callback != null && source != BASELINE && (changed || source == EVENT || source == MANUAL)) {
+            try { callback.onRecognition(value); } catch (RemoteException ignored) { cleanup(); }
         }
     }
     private void diagnostics() { diagnostics(false); }

@@ -8,19 +8,21 @@ import android.os.SystemClock;
 
 /** Cleanup is also scheduled with the system, so it survives loss of the app process. */
 final class PromptSafety {
-    static final long TIMEOUT_MS = 30_000;
     private static PendingIntent cleanup(Context c) {
         return PendingIntent.getBroadcast(c, 5, new Intent(c, DismissReceiver.class)
             .setAction("dev.linkisland.app.EXPIRE_PROMPT"), PendingIntent.FLAG_IMMUTABLE);
     }
     static void arm(Context c, boolean island) {
+        arm(c, island, Prefs.promptSeconds(c) * 1000L);
+    }
+    static void arm(Context c, boolean island, long timeoutMs) {
         boolean saved = Prefs.get(c).edit().putBoolean("prompt_active", true)
             .putBoolean("prompt_island", island)
-            .putLong("prompt_deadline", SystemClock.elapsedRealtime() + TIMEOUT_MS).commit();
+            .putLong("prompt_deadline", SystemClock.elapsedRealtime() + timeoutMs).commit();
         if (!saved) throw new IllegalStateException("Cannot persist prompt cleanup state");
         // An inexact backup; NotificationManager's own timeout remains the primary expiry.
         c.getSystemService(AlarmManager.class).set(AlarmManager.ELAPSED_REALTIME_WAKEUP,
-            SystemClock.elapsedRealtime() + TIMEOUT_MS, cleanup(c));
+            SystemClock.elapsedRealtime() + timeoutMs, cleanup(c));
     }
     static void cancel(Context c) {
         // Remove the notification first, even if updating cleanup state later fails.

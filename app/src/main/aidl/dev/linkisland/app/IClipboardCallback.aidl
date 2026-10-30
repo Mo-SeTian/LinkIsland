@@ -4,4 +4,5 @@ oneway interface IClipboardCallback {
     void onStatus(String status);
     void onDiagnostics(String diagnostics);
     void onHeartbeat();
+    void onRecognition(String result);
 }

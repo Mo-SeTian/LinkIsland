@@ -44,6 +44,11 @@ class MainActivity : ComponentActivity() {
     private var hideRecent by mutableStateOf(false)
     private var autoRestart by mutableStateOf(true)
     private var privilegedOpen by mutableStateOf(false)
+    private var promptSeconds by mutableIntStateOf(30)
+    private var jumpLog by mutableStateOf("[]")
+    private val logListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        if (screen == "logs") jumpLog = JumpLog.read(this)
+    }
     private var checkingRoot = false
     private val preferences by lazy { Prefs.get(this) }
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> refresh() }
@@ -71,6 +76,9 @@ class MainActivity : ComponentActivity() {
                 status = status, capture = capture, rulesJson = rules, island = island,
                 browsers = browsers, browserChoice = browserChoice, browserLabel = browserLabel,
                 hideRecent = hideRecent, autoRestart = autoRestart, privilegedOpen = privilegedOpen,
+                promptSeconds = promptSeconds,
+                onPromptSeconds = { preferences.edit().putInt("prompt_seconds", PromptDuration.valid(it)).apply() },
+                jumpLog = jumpLog, onClearLog = { JumpLog.clear(this) },
                 onHideRecent = { value -> preferences.edit().putBoolean("hide_recent", value).apply(); applyTaskVisibility() },
                 onAutoRestart = { value ->
                     preferences.edit().putBoolean("auto_restart", value).apply()
@@ -113,7 +121,7 @@ class MainActivity : ComponentActivity() {
             )
         }
         applyTaskVisibility()
-        if (screen == "settings") queryDevice()
+        if (screen == "diagnostics") queryDevice()
         if (screen == "permissions") refreshPermissions()
         if (screen == "settings" || screen == "browsers") refreshBrowsers()
     }
@@ -126,6 +134,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun refresh() {
+        promptSeconds = Prefs.promptSeconds(this)
         hideRecent = preferences.getBoolean("hide_recent", false)
         autoRestart = preferences.getBoolean("auto_restart", true)
         privilegedOpen = preferences.getBoolean("privileged_open", false)
@@ -140,7 +149,9 @@ class MainActivity : ComponentActivity() {
     }
     private fun navigate(destination: String) {
         screen = destination
-        if (destination == "settings") queryDevice()
+        if (destination == "diagnostics") queryDevice()
+        if (destination == "logs") jumpLog = JumpLog.read(this)
+        observeDiagnostics()
         if (destination == "permissions") refreshPermissions()
         if (destination == "settings" || destination == "browsers") refreshBrowsers()
     }
@@ -273,21 +284,27 @@ class MainActivity : ComponentActivity() {
             runOnUiThread { if (!isDestroyed) device = text }
         }, "device-diagnostics").start()
     }
+    private fun observeDiagnostics() {
+        MonitorService.observeDiagnostics(if (screen == "diagnostics") Runnable { refresh() } else null)
+    }
     private fun toast(text: String) { Toast.makeText(this, text, Toast.LENGTH_LONG).show() }
     override fun onResume() {
-        MonitorService.observeDiagnostics { refresh() }
+        JumpLog.preferences(this).registerOnSharedPreferenceChangeListener(logListener)
+        if (screen == "logs") jumpLog = JumpLog.read(this)
+        observeDiagnostics()
         super.onResume(); refresh(); applyTaskVisibility()
         if (!MonitorService.running && MonitorPolicy.shouldResume(preferences.getBoolean("monitor_wanted", false), autoRestart)) {
             try { startForegroundService(Intent(this, MonitorService::class.java).setAction("RESUME")) }
             catch (_: RuntimeException) { Prefs.status(this, "自动恢复启动失败 · 请点击开启监听重试") }
         }
-        if (screen == "settings") queryDevice()
+        if (screen == "diagnostics") queryDevice()
         if (screen == "permissions") refreshPermissions()
         if (screen == "settings" || screen == "browsers") refreshBrowsers()
     }
     override fun onSaveInstanceState(outState: Bundle) { outState.putString("screen", screen); super.onSaveInstanceState(outState) }
     override fun onPause() {
         MonitorService.observeDiagnostics(null)
+        JumpLog.preferences(this).unregisterOnSharedPreferenceChangeListener(logListener)
         super.onPause()
     }
     override fun onDestroy() {

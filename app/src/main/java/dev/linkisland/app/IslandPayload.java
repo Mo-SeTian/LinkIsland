@@ -9,8 +9,11 @@ final class IslandPayload {
     static final String ICON = "miui.focus.pic_target";
     static JSONObject create(String label, String host) throws JSONException { return create(label, host, true); }
     static JSONObject create(String label, String host, boolean modern) throws JSONException {
+        return create(label, host, modern, 30);
+    }
+    static JSONObject create(String label, String host, boolean modern, int seconds) throws JSONException {
         JSONObject picture = new JSONObject().put("type", 1).put("pic", ICON);
-        JSONObject island = new JSONObject().put("islandProperty", 2).put("islandTimeout", 30)
+        JSONObject island = new JSONObject().put("islandProperty", 2).put("islandTimeout", PromptDuration.valid(seconds))
             .put("bigIslandArea", new JSONObject()
                 .put("imageTextInfoLeft", new JSONObject().put("type", 1).put("picInfo", picture))
                 .put("textInfo", new JSONObject().put("title", "打开")))

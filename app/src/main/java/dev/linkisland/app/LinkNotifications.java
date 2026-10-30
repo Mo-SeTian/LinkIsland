@@ -18,7 +18,7 @@ final class LinkNotifications {
     static void channels(Context context) {
         NotificationManager nm = context.getSystemService(NotificationManager.class);
         NotificationChannel prompts = new NotificationChannel(PROMPTS, "链接跳转提示", NotificationManager.IMPORTANCE_HIGH);
-        prompts.setDescription("复制链接后询问是否打开，30 秒自动消失");
+        prompts.setDescription("复制链接后询问是否打开，按设置的停留时间自动消失");
         prompts.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         nm.createNotificationChannel(prompts);
         nm.createNotificationChannel(new NotificationChannel(MONITOR, "剪贴板监听状态", NotificationManager.IMPORTANCE_LOW));
@@ -36,12 +36,17 @@ final class LinkNotifications {
         try {
             PromptSafety.cancel(c);
             channels(c);
+            int seconds = Prefs.promptSeconds(c);
+            LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
+            String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
+            JumpLog.add(c, "识别", route.ruleName.isEmpty() ? "未命中规则，使用" + label
+                : "命中规则「" + route.ruleName + "」，目标：" + label, url);
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (!nm.areNotificationsEnabled() || nm.getNotificationChannel(PROMPTS).getImportance() == NotificationManager.IMPORTANCE_NONE) {
                 Prefs.status(c, "提示被关闭 · 请开启通知权限和链接跳转提示通道");
+                JumpLog.add(c, "提示", "通知权限或提示通道关闭，未发送", url);
                 return;
             }
-            LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
             Intent open = new Intent(c, OpenLinkActivity.class).putExtra("original", route.original)
                 .putExtra("target", route.target).putExtra("package", route.packageName)
                 // An empty-affinity task must never bring MainActivity above the source app.
@@ -52,7 +57,6 @@ final class LinkNotifications {
             PendingIntent dismiss = PendingIntent.getBroadcast(c, 4, new Intent(c, DismissReceiver.class), PendingIntent.FLAG_IMMUTABLE);
             Notification.Action openAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_link), "打开", pi).build();
             Notification.Action dismissAction = new Notification.Action.Builder(null, "忽略", dismiss).build();
-            String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
             String title = "使用 " + label + " 打开？";
             // Show only the hostname; query strings and clipboard text never appear in diagnostics.
             String host = URIHost(url);
@@ -61,7 +65,7 @@ final class LinkNotifications {
                 .setSmallIcon(R.drawable.ic_link).setLargeIcon(targetIcon).setContentTitle(title).setContentText(host)
                 .setContentIntent(pi).setDeleteIntent(dismiss).setCategory(Notification.CATEGORY_STATUS)
                 .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true)
-                .setTimeoutAfter(PromptSafety.TIMEOUT_MS).setShowWhen(false).setOnlyAlertOnce(false)
+                .setTimeoutAfter(seconds * 1000L).setShowWhen(false).setOnlyAlertOnce(false)
                 .addAction(openAction).addAction(dismissAction);
             Notification ordinary = builder.build();
             Notification notification = ordinary;
@@ -74,7 +78,7 @@ final class LinkNotifications {
                     actions.putParcelable("miui.focus.action_dismiss", dismissAction);
                     pics.putParcelable(IslandPayload.ICON, targetIcon);
                     boolean modern = android.provider.Settings.System.getInt(c.getContentResolver(), "notification_focus_protocol", 0) >= 3;
-                    JSONObject payload = IslandPayload.create(label, host, modern);
+                    JSONObject payload = IslandPayload.create(label, host, modern, seconds);
                     if (IslandPayloadValidator.isSafe(payload, pics.keySet(), Map.of(
                         "miui.focus.action_open", openAction.title.toString(),
                         "miui.focus.action_dismiss", dismissAction.title.toString()))) {
@@ -95,13 +99,13 @@ final class LinkNotifications {
                 }
             }
             try {
-                PromptSafety.arm(c, useIsland);
+                PromptSafety.arm(c, useIsland, seconds * 1000L);
                 nm.notify(PROMPT_ID, notification);
             } catch (RuntimeException e) {
                 PromptSafety.cancel(c);
                 if (!useIsland) throw e;
                 PromptSafety.disableIsland(c, "超级岛通知发送异常 · 已改用普通通知");
-                PromptSafety.arm(c, false);
+                PromptSafety.arm(c, false, seconds * 1000L);
                 nm.notify(PROMPT_ID, ordinary);
                 useIsland = false;
                 fallback = " · 超级岛发送异常，已暂停";
@@ -109,9 +113,12 @@ final class LinkNotifications {
             Prefs.status(c, useIsland
                 ? "已发送岛协议通知 · 实际展示请看手机，未授权时可能退化为普通通知"
                 : "已发送普通通知" + fallback);
+            JumpLog.add(c, "提示", (useIsland ? "已提交超级岛通知" : "已发送普通通知" + fallback)
+                + " · " + seconds + " 秒后自动消失", url);
         } catch (Exception e) {
             try { PromptSafety.cancel(c); } catch (RuntimeException ignored) { }
             Prefs.status(c, "规则或通知处理失败 · " + ClipboardBridge.causeName(e));
+            JumpLog.add(c, "失败", "规则或通知处理失败 · " + ClipboardBridge.causeName(e), url);
         }
     }
     static String URIHost(String url) { return java.net.URI.create(url).getHost(); }

@@ -56,6 +56,7 @@ internal fun LinkIslandUi(
     screen: String, mode: Int, running: Boolean, connecting: Boolean,
     status: String, capture: String, rulesJson: String, island: Boolean,
     hideRecent: Boolean, autoRestart: Boolean, privilegedOpen: Boolean,
+    promptSeconds: Int, onPromptSeconds: (Int) -> Unit, jumpLog: String, onClearLog: () -> Unit,
     onHideRecent: (Boolean) -> Unit, onAutoRestart: (Boolean) -> Unit, onPrivilegedOpen: (Boolean) -> Unit,
     browsers: List<BrowserAccess.Browser>, browserChoice: String, browserLabel: String, onBrowser: (String) -> Unit,
     device: String, shizukuPrompt: Boolean, permissions: List<PermissionItem>,
@@ -72,7 +73,7 @@ internal fun LinkIslandUi(
     else lightColorScheme(primary = Accent, surface = PageBackground, background = PageBackground, surfaceContainer = Color.White)
     MiuixTheme(colors = colors) {
         BackHandler(screen != "home") {
-            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen == "permissions" || screen == "browsers") "settings" else "home")
+            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics", "logs")) "settings" else "home")
         }
         Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).imePadding()) {
@@ -85,11 +86,13 @@ internal fun LinkIslandUi(
                             val initial = JSONArray(rulesJson).optJSONObject(index) ?: JSONObject()
                             RuleEditor(index, initial, { onNavigate("rules") }, onSaveRule, onDeleteRule, installedApps)
                         }
-                        page == "test" -> TestPage(island, onIsland, onTest, { onNavigate("home") })
+                        page == "test" -> TestPage(island, promptSeconds, onIsland, onTest, { onNavigate("home") })
                         page == "browsers" -> BrowserPage(browsers, browserChoice, onBrowser, { onNavigate("settings") })
                         page == "permissions" -> PermissionsPage(permissions, onPermission, onRefreshPermissions, { onNavigate("settings") })
-                        else -> SettingsPage(hideRecent, autoRestart, privilegedOpen, onHideRecent, onAutoRestart, onPrivilegedOpen, browserLabel, { onNavigate("browsers") }, mode, onMode, running, status, capture, device, island, onIsland, onProbe,
-                            onNotificationSettings, onRefresh, { onNavigate("permissions") }, { onNavigate("home") })
+                        page == "diagnostics" -> DiagnosticsPage(running, status, capture, device, onProbe, onRefresh, { onNavigate("settings") })
+                        page == "logs" -> LogsPage(jumpLog, onClearLog, { onNavigate("settings") })
+                        else -> SettingsPage(hideRecent, autoRestart, privilegedOpen, onHideRecent, onAutoRestart, onPrivilegedOpen, browserLabel, { onNavigate("browsers") }, mode, onMode, running, island, onIsland, promptSeconds, onPromptSeconds,
+                            onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("logs") }, { onNavigate("home") })
                     }
                 }
                 SuperDialog(show = shizukuPrompt, title = "请先启动 Shizuku",
@@ -116,7 +119,7 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("链接岛", fontSize = 32.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                     IconButton(onClick = { navigate("settings") }, modifier = Modifier.size(44.dp)) {
-                        Icon(MiuixIcons.Settings, "设置与诊断", Modifier.size(24.dp))
+                        Icon(MiuixIcons.Settings, "设置", Modifier.size(24.dp))
                     }
                 }
                 Text("复制后，让链接找到对应应用", fontSize = 14.sp, color = muted(), modifier = Modifier.padding(top = 8.dp))
@@ -284,7 +287,7 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
 }
 
 @Composable
-private fun TestPage(island: Boolean, onIsland: (Boolean) -> Unit, onTest: (String) -> String?, back: () -> Unit) {
+private fun TestPage(island: Boolean, seconds: Int, onIsland: (Boolean) -> Unit, onTest: (String) -> String?, back: () -> Unit) {
     var link by rememberSaveable { mutableStateOf("https://github.com/LinkSheet/LinkSheet") }
     var error by rememberSaveable { mutableStateOf("") }
     DetailPage("链接测试", back) {
@@ -301,7 +304,7 @@ private fun TestPage(island: Boolean, onIsland: (Boolean) -> Unit, onTest: (Stri
         Spacer(Modifier.height(24.dp))
         TextButton("发送测试提示", { error = onTest(link) ?: "" }, Modifier.fillMaxWidth(),
             colors = ButtonDefaults.textButtonColorsPrimary())
-        Note("提示 30 秒后消失。若系统未允许上岛，可能显示为普通通知。")
+        Note("提示 ${seconds} 秒后消失，可在设置中调整。若系统未允许上岛，可能显示为普通通知。")
     }
 }
 
@@ -343,11 +346,14 @@ private fun BrowserPage(browsers: List<BrowserAccess.Browser>, choice: String, s
 
 @Composable
 private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOpen: Boolean,
-    onHideRecent: (Boolean) -> Unit, onAutoRestart: (Boolean) -> Unit, onPrivilegedOpen: (Boolean) -> Unit, browserLabel: String, chooseBrowser: () -> Unit, mode: Int, onMode: (Int) -> Unit, running: Boolean, status: String, capture: String, device: String,
-    island: Boolean, onIsland: (Boolean) -> Unit, probe: () -> Unit,
-    notificationSettings: () -> Unit, refresh: () -> Unit, managePermissions: () -> Unit, back: () -> Unit) {
+    onHideRecent: (Boolean) -> Unit, onAutoRestart: (Boolean) -> Unit, onPrivilegedOpen: (Boolean) -> Unit,
+    browserLabel: String, chooseBrowser: () -> Unit, mode: Int, onMode: (Int) -> Unit, running: Boolean,
+    island: Boolean, onIsland: (Boolean) -> Unit, seconds: Int, onSeconds: (Int) -> Unit,
+    notificationSettings: () -> Unit, diagnostics: () -> Unit, managePermissions: () -> Unit, logs: () -> Unit, back: () -> Unit) {
     var about by remember { mutableStateOf(false) }
-    DetailPage("设置与诊断", back) {
+    DetailPage("设置", back) {
+        Caption("后台监听")
+        Spacer(Modifier.height(8.dp))
         Card(Modifier.fillMaxWidth()) {
             SuperDropdown(items = listOf("Shizuku", "Root"), selectedIndex = mode, title = "授权方式",
                 summary = if (running) "请先关闭监听，再切换授权方式" else "用于读取复制的链接",
@@ -361,16 +367,46 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
             RowDivider()
             SuperSwitch(checked = privilegedOpen, onCheckedChange = onPrivilegedOpen, title = "使用授权服务跳转",
                 summary = "点击打开时通过 Root / Shizuku 跳转，尝试减少系统二次确认；需开启监听")
-            RowDivider()
+        }
+        Spacer(Modifier.height(24.dp))
+        Caption("链接与提示")
+        Spacer(Modifier.height(8.dp))
+        Card(Modifier.fillMaxWidth()) {
             SuperArrow(title = "网页浏览器", summary = browserLabel, onClick = chooseBrowser)
-            RowDivider()
-            SuperArrow(title = "授权管理", summary = "查看通知、电池优化与自启动等权限", onClick = managePermissions)
             RowDivider()
             SuperSwitch(checked = island, onCheckedChange = onIsland, title = "小米超级岛", summary = "请求原生超级岛展示（实验）")
             RowDivider()
-            SuperArrow(title = "通知设置", summary = "管理跳转提示和悬浮通知", onClick = notificationSettings)
+            SuperDropdown(items = PromptDuration.OPTIONS.map { "$it 秒" },
+                selectedIndex = PromptDuration.OPTIONS.indexOf(seconds).coerceAtLeast(0), title = "提示停留时间",
+                summary = "链接提示自动消失的间隔，下次发送起生效",
+                onSelectedIndexChange = { onSeconds(PromptDuration.OPTIONS[it]) })
+            RowDivider()
+            SuperArrow(title = "系统通知设置", summary = "管理跳转提示和悬浮通知", onClick = notificationSettings)
         }
         Spacer(Modifier.height(24.dp))
+        Caption("管理")
+        Spacer(Modifier.height(8.dp))
+        Card(Modifier.fillMaxWidth()) {
+            SuperArrow(title = "运行诊断", summary = "查看监听状态、识别计数与设备信息", onClick = diagnostics)
+            RowDivider()
+            SuperArrow(title = "授权管理", summary = "查看通知、电池优化与自启动等权限", onClick = managePermissions)
+            RowDivider()
+            SuperArrow(title = "跳转日志", summary = "查看最近的识别、规则匹配与跳转结果", onClick = logs)
+            RowDivider()
+            SuperArrow(title = "关于链接岛", summary = BuildConfig.VERSION_NAME, onClick = { about = true })
+        }
+    }
+    SuperDialog(show = about, title = "链接岛", summary = BuildConfig.VERSION_NAME, onDismissRequest = { about = false }) {
+        Text("链接在本机识别与匹配。日志只保留域名和处理结果，不保存完整链接或剪贴板正文。\n\n界面使用 miuix；权限桥接使用 Shizuku API 和 libsu。\n\n开源许可随 APK 和源码提供。", fontSize = 14.sp, lineHeight = 22.sp)
+        Spacer(Modifier.height(20.dp))
+        TextButton("关闭", { about = false }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
+    }
+}
+
+@Composable
+private fun DiagnosticsPage(running: Boolean, status: String, capture: String, device: String,
+    probe: () -> Unit, refresh: () -> Unit, back: () -> Unit) {
+    DetailPage("运行诊断", back) {
         Caption("运行诊断")
         Spacer(Modifier.height(8.dp))
         Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
@@ -393,16 +429,45 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
         }
         Spacer(Modifier.height(12.dp))
         TextButton("刷新诊断", refresh, Modifier.fillMaxWidth())
-        Spacer(Modifier.height(24.dp))
-        Card(Modifier.fillMaxWidth()) {
-            SuperArrow(title = "关于链接岛", summary = BuildConfig.VERSION_NAME, onClick = { about = true })
-        }
         Note("诊断不记录剪贴板内容或完整链接。")
     }
-    SuperDialog(show = about, title = "链接岛", summary = BuildConfig.VERSION_NAME, onDismissRequest = { about = false }) {
-        Text("链接在本机识别与匹配，不保存剪贴板历史。\n\n界面使用 miuix；权限桥接使用 Shizuku API 和 libsu。\n\n开源许可随 APK 和源码提供。", fontSize = 14.sp, lineHeight = 22.sp)
-        Spacer(Modifier.height(20.dp))
-        TextButton("关闭", { about = false }, Modifier.fillMaxWidth(), colors = ButtonDefaults.textButtonColorsPrimary())
+}
+
+@Composable
+private fun LogsPage(json: String, clear: () -> Unit, back: () -> Unit) {
+    val entries = remember(json) { JSONArray(json).let { array ->
+        (array.length() - 1 downTo 0).map { array.getJSONObject(it) }
+    } }
+    val format = remember { java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.SIMPLIFIED_CHINESE) }
+    var confirm by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = back, modifier = Modifier.size(48.dp)) { Icon(MiuixIcons.Back, "返回", Modifier.size(22.dp)) }
+            Text("跳转日志", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+            TextButton("清空", { confirm = true }, enabled = entries.isNotEmpty())
+        }
+        Text("仅本机保存最近 100 条；不记录完整链接、参数和剪贴板正文。", Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            color = muted(), fontSize = 13.sp, lineHeight = 21.sp)
+        if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("暂无记录，复制链接或发送测试提示后可在此查看", Modifier.padding(28.dp), color = muted(), textAlign = TextAlign.Center)
+        } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(entries) { entry ->
+                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(entry.optString("stage"), Modifier.weight(1f), color = Accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(format.format(java.util.Date(entry.optLong("time"))), color = muted(), fontSize = 12.sp)
+                    }
+                    Text(entry.optString("detail"), Modifier.padding(top = 10.dp), fontSize = 15.sp, lineHeight = 23.sp)
+                    if (entry.optString("host").isNotEmpty()) Text(entry.optString("host"), Modifier.padding(top = 6.dp), color = muted(), fontSize = 13.sp)
+                }
+            }
+        }
+    }
+    SuperDialog(show = confirm, title = "清空跳转日志？", summary = "清空后无法恢复。", onDismissRequest = { confirm = false }) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton("取消", { confirm = false }, Modifier.weight(1f))
+            TextButton("清空", { clear(); confirm = false }, Modifier.weight(1f), colors = ButtonDefaults.textButtonColorsPrimary())
+        }
     }
 }
 

@@ -25,7 +25,8 @@ public final class LinkRules {
     {"name":"酷安","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:coolapk\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.coolapk.market","replacement":"","enabled":true,"description":"coolapk.com"},
     {"name":"豆瓣","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:douban\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.douban.frodo","replacement":"","enabled":true,"description":"douban.com"},
     {"name":"网易云音乐","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:music\\\\.163\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.netease.cloudmusic","replacement":"","enabled":true,"description":"music.163.com"},
-    {"name":"YouTube","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:youtube\\\\.com|youtu\\\\.be)(?::[0-9]+)?(?:[/?#]|$)","package":"com.google.android.youtube","replacement":"","enabled":true,"description":"youtube.com / youtu.be"}
+    {"name":"YouTube","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:youtube\\\\.com|youtu\\\\.be)(?::[0-9]+)?(?:[/?#]|$)","package":"com.google.android.youtube","replacement":"","enabled":true,"description":"youtube.com / youtu.be"},
+    {"name":"拼多多","type":"regex","pattern":"(?i)^https?://(?:[a-z0-9-]+\\\\.)*(?:yangkeduo\\\\.com|pinduoduo\\\\.com)(?::[0-9]+)?(?:[/?#]|$)","package":"com.xunmeng.pinduoduo","replacement":"","enabled":true,"description":"yangkeduo.com / pinduoduo.com"}
 ]
         """;
 
@@ -105,7 +106,9 @@ public final class LinkRules {
     }
 
     /** Append only; never reorder or replace existing user rules, including disabled ones. */
-    static String addMissingDefaults(String existing) throws Exception {
+    static String addMissingDefaults(String existing) throws Exception { return addMissingDefaults(existing, 1); }
+    static String addPinduoduoDefault(String existing) throws Exception { return addMissingDefaults(existing, 12); }
+    private static String addMissingDefaults(String existing, int start) throws Exception {
         parse(existing);
         JSONArray result = new JSONArray(existing), defaults = new JSONArray(DEFAULTS);
         java.util.Set<String> matches = new java.util.HashSet<>();
@@ -114,7 +117,7 @@ public final class LinkRules {
             matches.add(rule.optString("type", "contains") + "\n" + rule.optString("pattern"));
         }
         // GitHub existed before this revision: if absent, the user already deleted it.
-        for (int i = 1; i < defaults.length() && result.length() < 100; i++) {
+        for (int i = start; i < defaults.length() && result.length() < 100; i++) {
             JSONObject rule = defaults.getJSONObject(i);
             if (matches.add(rule.getString("type") + "\n" + rule.getString("pattern"))) result.put(rule);
         }
@@ -122,17 +125,17 @@ public final class LinkRules {
     }
 
     public static final class Route {
-        public final String original, target, packageName, label;
-        Route(String original, String target, String packageName, String label) {
-            this.original = original; this.target = target; this.packageName = packageName; this.label = label;
+        public final String original, target, packageName, label, ruleName;
+        Route(String original, String target, String packageName, String label, String ruleName) {
+            this.original = original; this.target = target; this.packageName = packageName; this.label = label; this.ruleName = ruleName;
         }
     }
     public static Route resolve(String url, List<Rule> rules) {
         if (!isWebUrl(url)) throw new IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接");
         for (Rule rule : rules) {
             if (rule.matches(url)) return new Route(url, rule.rewrite(url), rule.packageName,
-                rule.packageName.isEmpty() ? "默认浏览器" : rule.name);
+                rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name);
         }
-        return new Route(url, url, "", "默认浏览器");
+        return new Route(url, url, "", "默认浏览器", "");
     }
 }
