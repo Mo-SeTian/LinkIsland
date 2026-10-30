@@ -12,6 +12,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import kotlinx.coroutines.isActive
+import androidx.compose.foundation.ScrollState
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -278,6 +280,13 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
                 val packageName = rule.optString("package")
                 val appIcon = remember(packageName) { TargetAppIcon.load(context, packageName).asImageBitmap() }
                 val name = rule.optString("name").ifBlank { "自定义规则" }
+                val summary = remember(rule.toString()) {
+                    rule.optString("description").ifBlank {
+                        WebsiteRules.read(rule)?.text?.replace("\n", " / ")
+                            ?: if (rule.optString("type") == "regex" && rule.optString("pattern") == LinkRules.BROWSER_PATTERN) "所有 HTTP / HTTPS 网页"
+                            else typeLabel(rule.optString("type")) + " · " + rule.optString("pattern")
+                    }
+                }
                 val moving = dragged == index
                 Card(Modifier.fillMaxWidth().zIndex(if (moving) 1f else 0f).graphicsLayer {
                     translationY = if (moving) top + distance - (list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == index }?.offset ?: 0) else 0f
@@ -285,7 +294,7 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
                 }) {
                     SuperArrow(title = name,
                         startAction = { Image(appIcon, null, Modifier.padding(end = 12.dp).size(36.dp)) },
-                        summary = rule.optString("description").ifBlank { typeLabel(rule.optString("type")) + " · " + rule.optString("pattern") },
+                        summary = summary,
                         endActions = {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(if (rule.optBoolean("enabled", true)) "已启用" else "停用", color = if (rule.optBoolean("enabled", true)) Accent else muted(), fontSize = 12.sp)
@@ -310,50 +319,127 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
 @Composable
 private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
     save: (Int, JSONObject) -> String?, delete: (Int) -> Unit, installedApps: () -> List<Pair<String, String>>) {
+    val formScroll = rememberScrollState()
+    val formScope = rememberCoroutineScope()
+    val decoded = remember { WebsiteRules.read(initial) }
+    val allWeb = initial.optString("type") == "regex" && initial.optString("pattern") == LinkRules.BROWSER_PATTERN
+    var kind by rememberSaveable { mutableIntStateOf(if (allWeb) 2 else if (initial.optString("type") == "contains") 1 else 0) }
+    var websites by rememberSaveable { mutableStateOf(decoded?.text ?: "") }
+    var subdomains by rememberSaveable { mutableStateOf(decoded?.subdomains ?: true) }
+    var keyword by rememberSaveable { mutableStateOf(if (initial.optString("type") == "contains") initial.optString("pattern") else "") }
+    var regex by rememberSaveable { mutableStateOf(initial.optString("pattern")) }
+    var regexMode by rememberSaveable { mutableStateOf(initial.optString("type") == "regex" && decoded == null && !allWeb) }
     var name by rememberSaveable { mutableStateOf(initial.optString("name")) }
-    val types = listOf("domain", "contains", "regex")
-    var type by rememberSaveable { mutableIntStateOf(types.indexOf(initial.optString("type", "contains")).coerceAtLeast(0)) }
-    var pattern by rememberSaveable { mutableStateOf(initial.optString("pattern")) }
     var pkg by rememberSaveable { mutableStateOf(initial.optString("package")) }
     var replacement by rememberSaveable { mutableStateOf(initial.optString("replacement")) }
+    var advanced by rememberSaveable { mutableStateOf(regexMode || replacement.isNotBlank()) }
     var enabled by rememberSaveable { mutableStateOf(initial.optBoolean("enabled", true)) }
     var error by rememberSaveable { mutableStateOf("") }
     var picker by remember { mutableStateOf(false) }
     var appSearch by rememberSaveable { mutableStateOf("") }
     var confirmDelete by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val appLabel = remember(pkg) {
+        if (pkg.isBlank()) "网页浏览器" else try {
+            context.packageManager.getApplicationInfo(pkg, 0).loadLabel(context.packageManager).toString()
+        } catch (_: android.content.pm.PackageManager.NameNotFoundException) { "目标应用未安装" }
+    }
     DetailPage(if (index < 0) "添加规则" else "编辑规则", back, action = {
         TextButton("保存", {
-            val rule = JSONObject().put("name", name.trim().ifBlank { "自定义规则" })
-                .put("type", types[type]).put("pattern", pattern.trim()).put("package", pkg.trim())
-                .put("replacement", replacement.trim()).put("enabled", enabled)
-            error = save(index, rule) ?: ""
+            error = try {
+                val rule = JSONObject(initial.toString())
+                when {
+                    regexMode -> rule.put("type", "regex").put("pattern", regex.trim())
+                    kind == 0 -> WebsiteRules.write(rule, websites, subdomains)
+                    kind == 1 -> {
+                        require(keyword.isNotBlank()) { "请填写要识别的关键词" }
+                        rule.put("type", "contains").put("pattern", keyword.trim())
+                    }
+                    else -> rule.put("type", "regex").put("pattern", LinkRules.BROWSER_PATTERN)
+                }
+                if (!regexMode && kind == 0 && decoded != null && websites == decoded.text && subdomains == decoded.subdomains) {
+                    rule.put("type", initial.optString("type")).put("pattern", initial.optString("pattern"))
+                }
+                if (rule.optString("type") != initial.optString("type") || rule.optString("pattern") != initial.optString("pattern")) rule.remove("description")
+                val defaultName = if (regexMode) "自定义规则" else when (kind) {
+                    0 -> WebsiteRules.hosts(websites).first()
+                    1 -> "包含「${keyword.trim()}」"
+                    else -> "所有网页"
+                }
+                rule.put("name", name.trim().ifBlank { defaultName }).put("package", pkg.trim())
+                    .put("replacement", replacement.trim()).put("enabled", enabled)
+                save(index, rule) ?: ""
+            } catch (e: IllegalArgumentException) { e.message ?: "请检查填写内容" }
+            if (error.isNotBlank()) formScope.launch { formScroll.animateScrollTo(0) }
         }, colors = ButtonDefaults.textButtonColorsPrimary())
-    }) {
-        Field("规则名称", name, { name = it })
-        Spacer(Modifier.height(16.dp))
-        Card(Modifier.fillMaxWidth()) {
-            SuperDropdown(items = listOf("域名完全匹配", "包含关键词", "正则表达式"),
-                selectedIndex = type, title = "匹配方式", onSelectedIndexChange = { type = it })
+    }, scrollState = formScroll) {
+        if (error.isNotBlank()) Text(error, Modifier.padding(bottom = 16.dp), color = MiuixTheme.colorScheme.error, fontSize = 14.sp)
+        Caption("1 · 识别什么链接")
+        Spacer(Modifier.height(8.dp))
+        if (regexMode) {
+            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
+                Text("使用高级正则匹配", fontWeight = FontWeight.SemiBold)
+                Note("可在下方高级设置中查看或切换为简单填写。")
+            }
+        } else {
+            Card(Modifier.fillMaxWidth()) {
+                SuperDropdown(items = listOf("来自某些网站", "链接中包含关键词", "所有网页链接"),
+                    selectedIndex = kind, title = "识别方式", onSelectedIndexChange = { kind = it; error = "" })
+            }
+            Spacer(Modifier.height(16.dp))
+            when (kind) {
+                0 -> {
+                    Caption("网站地址")
+                    Spacer(Modifier.height(8.dp))
+                    Field("网址或域名，例如 github.com", websites, { websites = it; error = "" }, singleLine = false, url = true)
+                    Note("直接粘贴完整链接也可以。多个网站用逗号或换行分开。")
+                    Spacer(Modifier.height(12.dp))
+                    Card(Modifier.fillMaxWidth()) {
+                        SuperSwitch(checked = subdomains, onCheckedChange = { subdomains = it }, title = "同时识别子域名",
+                            summary = "例如填写 example.com，也识别 www.example.com 和 m.example.com")
+                    }
+                }
+                1 -> {
+                    Field("要识别的关键词，例如 /video/", keyword, { keyword = it; error = "" })
+                    Note("只要链接里包含这段文字就会命中，不区分大小写。")
+                }
+                else -> Note("识别以 http:// 或 https:// 开头的网页链接，建议放在规则列表最后。")
+            }
         }
-        Spacer(Modifier.height(16.dp))
-        Field(if (type == 0) "域名，例如 github.com" else if (type == 1) "要匹配的关键词" else "正则表达式",
-            pattern, { pattern = it })
         Spacer(Modifier.height(24.dp))
-        Caption("跳转目标")
+        Caption("2 · 用哪个应用打开")
         Spacer(Modifier.height(8.dp))
         Card(Modifier.fillMaxWidth()) {
-            SuperArrow(title = "选择目标 App", summary = if (pkg.isBlank()) "使用设置中选择的浏览器" else pkg, onClick = { appSearch = ""; picker = true })
+            SuperArrow(title = "选择目标应用", summary = appLabel, onClick = { appSearch = ""; picker = true })
         }
-        Spacer(Modifier.height(12.dp))
-        Field("App 包名，留空使用浏览器", pkg, { pkg = it })
-        Spacer(Modifier.height(16.dp))
-        Field("改写后的链接（可选）", replacement, { replacement = it }, singleLine = false)
-        Note("留空保留原链接。域名与关键词模式可使用 {url}；正则模式可使用 $1、$2 捕获组。")
+        Note(if (replacement.isBlank()) "默认打开复制的原链接。选择网页浏览器时，使用设置中指定的浏览器。" else "已设置自定义跳转链接，可在高级设置中查看和修改。")
+        Spacer(Modifier.height(24.dp))
+        Caption("规则名称（可选）")
+        Spacer(Modifier.height(8.dp))
+        Field("留空自动命名", name, { name = it })
+        Note("启用的规则保存后立即参与匹配。")
         Spacer(Modifier.height(16.dp))
         Card(Modifier.fillMaxWidth()) {
             SuperSwitch(checked = enabled, onCheckedChange = { enabled = it }, title = "启用规则")
+            SuperArrow(title = "高级设置", summary = if (advanced) "点击收起" else if (replacement.isNotBlank()) "已设置链接改写" else "正则、链接改写与手动填写包名",
+                onClick = { advanced = !advanced })
         }
-        if (error.isNotEmpty()) Text(error, Modifier.padding(top = 16.dp), color = MiuixTheme.colorScheme.error, fontSize = 14.sp)
+        if (advanced) {
+            Spacer(Modifier.height(16.dp))
+            Card(Modifier.fillMaxWidth()) {
+                SuperSwitch(checked = regexMode, onCheckedChange = { regexMode = it; error = "" }, title = "使用正则匹配",
+                    summary = "普通网站和关键词不需要开启")
+            }
+            if (regexMode) {
+                Spacer(Modifier.height(12.dp))
+                Field("正则表达式", regex, { regex = it; error = "" }, singleLine = false)
+            }
+            Spacer(Modifier.height(12.dp))
+            Field("App 包名，留空使用浏览器", pkg, { pkg = it })
+            Spacer(Modifier.height(16.dp))
+            Field("改写后的链接（可选）", replacement, { replacement = it }, singleLine = false)
+            Note("留空保留原链接。域名完全匹配与关键词模式可使用 {url}；正则模式可使用 $1、$2 捕获组。")
+        }
         if (index >= 0) {
             Spacer(Modifier.height(24.dp))
             TextButton("删除规则", { confirmDelete = true }, Modifier.fillMaxWidth(),
@@ -721,7 +807,7 @@ private fun PermissionsPage(permissions: List<PermissionItem>, manage: (String) 
 }
 
 @Composable
-private fun DetailPage(title: String, back: () -> Unit, action: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+private fun DetailPage(title: String, back: () -> Unit, action: @Composable () -> Unit = {}, scrollState: ScrollState = rememberScrollState(), content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = back, modifier = Modifier.size(48.dp)) {
@@ -730,7 +816,7 @@ private fun DetailPage(title: String, back: () -> Unit, action: @Composable () -
             Text(title, Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
             action()
         }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 28.dp), content = content)
+        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 28.dp), content = content)
     }
 }
 
