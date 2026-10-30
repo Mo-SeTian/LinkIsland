@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 
 
 output = Path("artifacts")
@@ -38,11 +39,27 @@ assert len(versions) == 1, "Debug and Release versions must match"
 (output / "SHA256SUMS.txt").write_text("".join(checksums))
 version = versions.pop()
 repo = os.environ.get("GITHUB_REPOSITORY", "Mo-SeTian/LinkIsland")
-commit = os.environ.get("GITHUB_SHA", "local")
+commit = os.environ.get("GITHUB_SHA") or subprocess.check_output(
+    ["git", "rev-parse", "HEAD"], text=True
+).strip()
 run_id = os.environ.get("GITHUB_RUN_ID", "")
 notes = f"# LinkIsland {version}\n\n[项目仓库](https://github.com/{repo})\n\n提交：`{commit}`\n\n"
 if run_id:
     notes += f"[构建记录](https://github.com/{repo}/actions/runs/{run_id})\n\n"
+revisions = ["-1", commit]
+if os.environ.get("GITHUB_EVENT_NAME") == "push":
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    before = event.get("before", "")
+    if re.fullmatch(r"[0-9a-fA-F]{40}", before) and int(before, 16) != 0:
+        revisions = [f"{before}..{commit}"]
+log = subprocess.check_output(
+    ["git", "log", "--reverse", "--format=%H%x00%B%x00", *revisions], text=True
+).split("\0")
+notes += "## 提交日志\n\n"
+for sha, message in zip(log[::2], log[1::2]):
+    sha = sha.strip()
+    notes += f"[`{sha[:7]}`](https://github.com/{repo}/commit/{sha})\n\n"
+    notes += "\n".join("> " + line for line in message.strip().splitlines()) + "\n\n"
 notes += "Debug：dev.linkisland.app.debug，可与 Release 共存。\n\nRelease：dev.linkisland.app。首次替换旧本地测试版时可能需要卸载旧版，因为签名已变更。\n\n文件名末尾为 MD5 前 8 位，完整 SHA-256 校验值随 GitHub 构建产物提供。\n"
 (output / "build-notes.md").write_text(notes)
 if os.environ.get("GITHUB_OUTPUT"):

@@ -35,5 +35,6 @@ message = data["message"]
 assert message["channelId"] == os.environ["MESSAGE_PUSH_CHANNEL_ID"], "Unexpected upload channel"
 expected = sorted(p.name for p in Path("artifacts").glob("LinkIsland-*.apk"))
 assert sorted(f["name"] for f in message["files"]) == expected, "Server did not confirm both APKs"
-print("Message upload confirmed: both APKs in one message.")
+assert message["caption"] == Path("artifacts/build-notes.md").read_text().strip(), "Server did not confirm build notes and commit log"
+print("Message 上传已确认：两个 APK 和提交日志在同一条消息中。")
 PY
