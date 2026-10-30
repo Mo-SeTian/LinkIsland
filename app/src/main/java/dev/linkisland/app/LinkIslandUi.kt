@@ -323,16 +323,16 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
     val formScope = rememberCoroutineScope()
     val decoded = remember { WebsiteRules.read(initial) }
     val allWeb = initial.optString("type") == "regex" && initial.optString("pattern") == LinkRules.BROWSER_PATTERN
-    var kind by rememberSaveable { mutableIntStateOf(if (allWeb) 2 else if (initial.optString("type") == "contains") 1 else 0) }
+    var kind by rememberSaveable { mutableIntStateOf(if (allWeb) 2 else if (initial.optString("type") == "contains") 1 else if (initial.optString("type") == "regex" && decoded == null) 3 else 0) }
     var websites by rememberSaveable { mutableStateOf(decoded?.text ?: "") }
     var subdomains by rememberSaveable { mutableStateOf(decoded?.subdomains ?: true) }
     var keyword by rememberSaveable { mutableStateOf(if (initial.optString("type") == "contains") initial.optString("pattern") else "") }
     var regex by rememberSaveable { mutableStateOf(initial.optString("pattern")) }
-    var regexMode by rememberSaveable { mutableStateOf(initial.optString("type") == "regex" && decoded == null && !allWeb) }
+    val regexMode = kind == 3
     var name by rememberSaveable { mutableStateOf(initial.optString("name")) }
     var pkg by rememberSaveable { mutableStateOf(initial.optString("package")) }
     var replacement by rememberSaveable { mutableStateOf(initial.optString("replacement")) }
-    var advanced by rememberSaveable { mutableStateOf(regexMode || replacement.isNotBlank()) }
+    var advanced by rememberSaveable { mutableStateOf(replacement.isNotBlank()) }
     var enabled by rememberSaveable { mutableStateOf(initial.optBoolean("enabled", true)) }
     var error by rememberSaveable { mutableStateOf("") }
     var picker by remember { mutableStateOf(false) }
@@ -374,36 +374,35 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
         }, colors = ButtonDefaults.textButtonColorsPrimary())
     }, scrollState = formScroll) {
         if (error.isNotBlank()) Text(error, Modifier.padding(bottom = 16.dp), color = MiuixTheme.colorScheme.error, fontSize = 14.sp)
-        Caption("1 · 识别什么链接")
+        Caption("1 · 选择匹配方式")
         Spacer(Modifier.height(8.dp))
-        if (regexMode) {
-            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(20.dp)) {
-                Text("使用高级正则匹配", fontWeight = FontWeight.SemiBold)
-                Note("可在下方高级设置中查看或切换为简单填写。")
-            }
-        } else {
-            Card(Modifier.fillMaxWidth()) {
-                SuperDropdown(items = listOf("来自某些网站", "链接中包含关键词", "所有网页链接"),
-                    selectedIndex = kind, title = "识别方式", onSelectedIndexChange = { kind = it; error = "" })
-            }
-            Spacer(Modifier.height(16.dp))
-            when (kind) {
-                0 -> {
-                    Caption("网站地址")
-                    Spacer(Modifier.height(8.dp))
-                    Field("网址或域名，例如 github.com", websites, { websites = it; error = "" }, singleLine = false, url = true)
-                    Note("直接粘贴完整链接也可以。多个网站用逗号或换行分开。")
-                    Spacer(Modifier.height(12.dp))
-                    Card(Modifier.fillMaxWidth()) {
-                        SuperSwitch(checked = subdomains, onCheckedChange = { subdomains = it }, title = "同时识别子域名",
-                            summary = "例如填写 example.com，也识别 www.example.com 和 m.example.com")
-                    }
+        Card(Modifier.fillMaxWidth()) {
+            SuperDropdown(items = listOf("来自某些网站", "链接中包含关键词", "所有网页链接", "正则表达式"),
+                selectedIndex = kind, title = "匹配方式", onSelectedIndexChange = { kind = it; error = "" })
+        }
+        Spacer(Modifier.height(16.dp))
+        when (kind) {
+            0 -> {
+                Caption("网站地址")
+                Spacer(Modifier.height(8.dp))
+                Field("网址或域名，例如 github.com", websites, { websites = it; error = "" }, singleLine = false, url = true)
+                Note("直接粘贴完整链接也可以。多个网站用逗号或换行分开。")
+                Spacer(Modifier.height(12.dp))
+                Card(Modifier.fillMaxWidth()) {
+                    SuperSwitch(checked = subdomains, onCheckedChange = { subdomains = it }, title = "同时识别子域名",
+                        summary = "例如填写 example.com，也识别 www.example.com 和 m.example.com")
                 }
-                1 -> {
-                    Field("要识别的关键词，例如 /video/", keyword, { keyword = it; error = "" })
-                    Note("只要链接里包含这段文字就会命中，不区分大小写。")
-                }
-                else -> Note("识别以 http:// 或 https:// 开头的网页链接，建议放在规则列表最后。")
+            }
+            1 -> {
+                Field("要识别的关键词，例如 /video/", keyword, { keyword = it; error = "" })
+                Note("只要链接里包含这段文字就会命中，不区分大小写。")
+            }
+            2 -> Note("识别以 http:// 或 https:// 开头的网页链接，建议放在规则列表最后。")
+            else -> {
+                Caption("正则表达式")
+                Spacer(Modifier.height(8.dp))
+                Field("填写匹配表达式", regex, { regex = it; error = "" }, singleLine = false)
+                Note("按表达式匹配链接。普通网站也可以直接选择“来自某些网站”填写。")
             }
         }
         Spacer(Modifier.height(24.dp))
@@ -421,20 +420,11 @@ private fun RuleEditor(index: Int, initial: JSONObject, back: () -> Unit,
         Spacer(Modifier.height(16.dp))
         Card(Modifier.fillMaxWidth()) {
             SuperSwitch(checked = enabled, onCheckedChange = { enabled = it }, title = "启用规则")
-            SuperArrow(title = "高级设置", summary = if (advanced) "点击收起" else if (replacement.isNotBlank()) "已设置链接改写" else "正则、链接改写与手动填写包名",
+            SuperArrow(title = "高级设置", summary = if (advanced) "点击收起" else if (replacement.isNotBlank()) "已设置链接改写" else "链接改写与手动填写包名",
                 onClick = { advanced = !advanced })
         }
         if (advanced) {
             Spacer(Modifier.height(16.dp))
-            Card(Modifier.fillMaxWidth()) {
-                SuperSwitch(checked = regexMode, onCheckedChange = { regexMode = it; error = "" }, title = "使用正则匹配",
-                    summary = "普通网站和关键词不需要开启")
-            }
-            if (regexMode) {
-                Spacer(Modifier.height(12.dp))
-                Field("正则表达式", regex, { regex = it; error = "" }, singleLine = false)
-            }
-            Spacer(Modifier.height(12.dp))
             Field("App 包名，留空使用浏览器", pkg, { pkg = it })
             Spacer(Modifier.height(16.dp))
             Field("改写后的链接（可选）", replacement, { replacement = it }, singleLine = false)
