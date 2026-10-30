@@ -178,4 +178,6 @@
 - Android 16 模拟器实际创建并恢复 MainActivity，验证服务未运行且 wanted=true / auto=true 时启动前台监听；wanted=false 或 auto=false 时保持停止。使用离线 Shizuku 让真实服务等待连接，不把该检查宣称为 Root 真机完整验证。
 - 38 项单元测试通过，含新增心跳边界和未初始化状态检查；Lint 0 errors / 23 warnings。
 - Debug applicationId=dev.linkisland.app.debug，Release=dev.linkisland.app；两个 APK 都通过 apksigner 校验，证书 SHA-256 与本机生成的项目证书一致。文件名实际生成为 LinkIsland-0.2.10-Debug/Release-8位MD5.apk。
-- 工作流通过 actionlint 检查。签名和 Message 上传配置使用 Repository secrets，本地完整签名备份被 Git 忽略。GitHub 工作流执行及真实 Message 上传结果将在首次运行后补充。
+- 工作流通过 actionlint 检查。签名和 Message 上传配置使用 Repository secrets，本地完整签名备份被 Git 忽略。
+- 首次云端运行发现 setup-android 默认安装已下架的 tools 包，显式指定 platform-tools 后修复。GitHub Actions 第 2 次运行全部成功：测试、双包构建、两包签名校验、产物归档及 Message 上传均通过。构建源提交为 22c5d0db8fa2a7e1ba32edd080ff2f7c539b0813，记录：https://github.com/Mo-SeTian/LinkIsland/actions/runs/40982001176 。
+- 真实 Message 回执确认两个 APK 同时进入指定频道的同一条消息；GitHub 产物为 LinkIsland-0.2.10-2，保留 30 天。验证记录更新仅修改文档，提交标记 skip ci 避免重复上传相同代码。
