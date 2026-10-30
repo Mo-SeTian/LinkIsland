@@ -27,10 +27,11 @@ for variant, label, package in (
     short_md5 = hashlib.md5(content, usedforsecurity=False).hexdigest()[:8]
     name = f"LinkIsland-{version}-{label}-{short_md5}.apk"
     shutil.copy2(apk, output / name)
-    mapping = Path("app/build/outputs/mapping") / variant / "mapping.txt"
-    assert mapping.is_file(), "Missing R8 mapping"
-    (output / "mapping").mkdir(exist_ok=True)
-    shutil.copy2(mapping, output / "mapping" / f"{label}.txt")
+    if variant == "release":
+        mapping = Path("app/build/outputs/mapping/release/mapping.txt")
+        assert mapping.is_file(), "Missing Release R8 mapping"
+        (output / "mapping").mkdir(exist_ok=True)
+        shutil.copy2(mapping, output / "mapping" / "Release.txt")
     checksums.append(f"{hashlib.sha256(content).hexdigest()}  {name}\n")
     print(name)
 assert len(versions) == 1, "Debug and Release versions must match"

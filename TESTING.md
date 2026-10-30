@@ -196,7 +196,7 @@
 
 ## 0.2.12 内存、心跳与恢复回归（2026-10-30）
 
-- 启用 Debug / Release 的 R8 和资源裁剪，保留动态 Root / Shizuku 服务及 Binder 入口；AGP 更新到支持 Kotlin 2.3 的 8.13.2。正式 Debug 保留可调试和可读类名，Release 启用优化与混淆；构建产物收录两类 mapping。
+- 启用 Debug / Release 的 R8 和资源裁剪，保留动态 Root / Shizuku 服务及 Binder 入口；AGP 更新到支持 Kotlin 2.3 的 8.13.2。正式 Debug 保留可调试和可读类名，Release 启用优化与混淆；构建产物收录 Release 的 mapping。
 - 47 项 JVM 单元测试通过，新增读取器复用后仍读取新内容及不同用户参数隔离的回归；lint 无错误。现有剪贴板变化、恢复策略、规则、通知安全和短链测试继续通过。
 - 小米 10 / Android 15 / HyperOS 3，同 UID、旧测试签名的临时 Debug 包完成 0.2.11 / 0.2.12 两段各 120 秒 Root 后台采样：结束合计 PSS 135.4 / 112.0 MiB，CPU 单核 0.250% / 0.308%，两者主进程 write_bytes 均为 0、配置 mtime 均无变化。不能用这两段低 CPU 短采样宣称实际电量下降。
 - 外部 App 复制至通知提交，0.2.11 Root、0.2.12 Root、恢复后的 Root、0.2.12 Shizuku 四组各 5/5 成功，中位延迟 255 / 242 / 253 / 255 ms。事件响应未变慢，原两秒兜底读取保留。
