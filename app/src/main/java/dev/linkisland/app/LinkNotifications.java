@@ -68,6 +68,8 @@ final class LinkNotifications {
                 .setTimeoutAfter(seconds * 1000L).setShowWhen(false).setOnlyAlertOnce(false)
                 .addAction(openAction).addAction(dismissAction);
             Notification ordinary = builder.build();
+            // Keep the pending choice when the user clears unrelated notifications.
+            ordinary.flags |= Notification.FLAG_NO_CLEAR;
             Notification notification = ordinary;
             boolean useIsland = false;
             String fallback = "";

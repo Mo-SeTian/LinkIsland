@@ -1,6 +1,7 @@
 package dev.linkisland.app.fixture;
 
 import android.app.Instrumentation;
+import android.app.Notification;
 import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -27,14 +28,16 @@ public final class PromptDurationInstrumentation extends Instrumentation {
             cancel.setAccessible(true);
             p.edit().putBoolean("island", false).putBoolean("monitor_wanted", false).commit();
             NotificationManager manager = c.getSystemService(NotificationManager.class);
-            for (int seconds : new int[]{30, 15, 10, 5}) {
-                p.edit().putInt("prompt_seconds", seconds).commit();
+            for (int seconds : new int[]{30, 15, 10, 5}) for (boolean island : new boolean[]{false, true}) {
+                p.edit().putInt("prompt_seconds", seconds).putBoolean("island", island).commit();
                 long began = SystemClock.elapsedRealtime();
                 show.invoke(null, c, "https://example.org/private-path?token=fixture-secret");
                 StatusBarNotification prompt = null;
                 for (StatusBarNotification n : manager.getActiveNotifications()) if (n.getId() == 101) prompt = n;
                 if (prompt == null || prompt.getNotification().getTimeoutAfter() != seconds * 1000L)
                     throw new AssertionError("Incorrect notification timeout");
+                if ((prompt.getNotification().flags & Notification.FLAG_NO_CLEAR) == 0 || prompt.isClearable())
+                    throw new AssertionError("Prompt can be cleared by Clear all");
                 long expected = began + seconds * 1000L, deadline = p.getLong("prompt_deadline", 0);
                 if (deadline < expected || deadline - expected > 2000) throw new AssertionError("Incorrect cleanup deadline");
             }
@@ -46,10 +49,17 @@ public final class PromptDurationInstrumentation extends Instrumentation {
                 for (StatusBarNotification n : manager.getActiveNotifications()) if (n.getId() == 101) active = true;
             } while (active && SystemClock.elapsedRealtime() < deadline);
             if (active) throw new AssertionError("Five-second prompt did not expire");
+            p.edit().putInt("prompt_seconds", 30).commit();
+            show.invoke(null, c, "https://example.org/dismiss-test");
+            for (StatusBarNotification n : manager.getActiveNotifications()) if (n.getId() == 101)
+                n.getNotification().actions[1].actionIntent.send();
+            Thread.sleep(500);
+            for (StatusBarNotification n : manager.getActiveNotifications()) if (n.getId() == 101)
+                throw new AssertionError("Ignore did not remove protected prompt");
             String log = c.getSharedPreferences("jump_log", Context.MODE_PRIVATE).getString("entries", "[]");
             if (!log.contains("example.org") || log.contains("private-path") || log.contains("fixture-secret"))
                 throw new AssertionError("Unsafe or missing recognition log");
-            result.putString("result", "PASS all notification timeouts and cleanup deadlines; five-second expiry; sanitized logs");
+            result.putString("result", "PASS ordinary/island Clear-all flags; all timeouts; five-second expiry; Ignore and sanitized logs");
         } catch (Throwable error) {
             result.putString("test_error", error.getClass().getSimpleName());
         } finally {
