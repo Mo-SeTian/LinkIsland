@@ -1,0 +1,59 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+android {
+    namespace 'dev.linkisland.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'dev.linkisland.app'
+        minSdk 31
+        targetSdk 36
+        versionCode 13
+        versionName '0.2.10'
+        manifestPlaceholders = [targetAppId: 'dev.linkisland.app']
+    }
+    buildFeatures { aidl true; buildConfig true; compose true }
+    def signingPath = System.getenv('LINKISLAND_KEYSTORE_FILE')
+    if (signingPath) {
+        signingConfigs {
+            projectKey {
+                storeFile file(signingPath)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            manifestPlaceholders = [targetAppId: 'dev.linkisland.app.debug']
+            resValue 'string', 'app_name', '链接岛 · Debug'
+            if (signingPath) signingConfig signingConfigs.projectKey
+        }
+        release {
+            resValue 'string', 'app_name', '链接岛'
+            if (signingPath) signingConfig signingConfigs.projectKey
+        }
+    }
+    kotlinOptions { jvmTarget = '17' }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint { disable 'MissingTranslation' }
+}
+dependencies {
+    implementation 'androidx.activity:activity-compose:1.12.4'
+    implementation 'top.yukonga.miuix.kmp:miuix:0.8.8'
+    implementation 'top.yukonga.miuix.kmp:miuix-icons:0.8.8'
+    implementation 'androidx.annotation:annotation:1.9.1'
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+    implementation 'com.github.topjohnwu.libsu:service:6.0.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}

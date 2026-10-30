@@ -1,0 +1,15 @@
+.tooling/
+.gradle/
+**/build/
+local.properties
+*.jks
+*.keystore
+.DS_Store
+/private/
+/dist/
+/artifacts/
+/design/
+/design-qa.md
+/build-notes.md
+__pycache__/
+*.pyc

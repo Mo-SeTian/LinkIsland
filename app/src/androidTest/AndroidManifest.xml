@@ -1,0 +1,33 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <instrumentation android:name="dev.linkisland.app.fixture.PromptFaultInstrumentation"
+        android:targetPackage="${targetAppId}" />
+    <instrumentation android:name="dev.linkisland.app.fixture.ReturnStackInstrumentation"
+        android:targetPackage="${targetAppId}" />
+    <instrumentation android:name="dev.linkisland.app.fixture.RecoveryInstrumentation"
+        android:targetPackage="${targetAppId}" />
+    <application android:label="链接岛测试夹具">
+        <activity android:name="dev.linkisland.app.fixture.CopyFixtureActivity" android:exported="true"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="islandfixture" android:host="repo" />
+            </intent-filter>
+        </activity>
+        <activity android:name="dev.linkisland.app.fixture.BrowserFixtureActivity" android:exported="true"
+            android:label="测试浏览器" android:taskAffinity="dev.linkisland.fixture.browser"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" /><data android:scheme="https" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
