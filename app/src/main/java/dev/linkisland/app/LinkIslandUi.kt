@@ -73,7 +73,7 @@ internal fun LinkIslandUi(
     else lightColorScheme(primary = Accent, surface = PageBackground, background = PageBackground, surfaceContainer = Color.White)
     MiuixTheme(colors = colors) {
         BackHandler(screen != "home") {
-            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics", "logs")) "settings" else "home")
+            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics")) "settings" else "home")
         }
         Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).imePadding()) {
@@ -90,9 +90,9 @@ internal fun LinkIslandUi(
                         page == "browsers" -> BrowserPage(browsers, browserChoice, onBrowser, { onNavigate("settings") })
                         page == "permissions" -> PermissionsPage(permissions, onPermission, onRefreshPermissions, { onNavigate("settings") })
                         page == "diagnostics" -> DiagnosticsPage(running, status, capture, device, onProbe, onRefresh, { onNavigate("settings") })
-                        page == "logs" -> LogsPage(jumpLog, onClearLog, { onNavigate("settings") })
+                        page == "logs" -> LogsPage(jumpLog, onClearLog, { onNavigate("home") })
                         else -> SettingsPage(hideRecent, autoRestart, privilegedOpen, onHideRecent, onAutoRestart, onPrivilegedOpen, browserLabel, { onNavigate("browsers") }, mode, onMode, running, island, onIsland, promptSeconds, onPromptSeconds,
-                            onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("logs") }, { onNavigate("home") })
+                            onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("home") })
                     }
                 }
                 SuperDialog(show = shizukuPrompt, title = "请先启动 Shizuku",
@@ -164,6 +164,9 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                     RowDivider()
                     SuperArrow(title = "链接测试", summary = "检查提示与跳转",
                         insideMargin = PaddingValues(horizontal = 20.dp, vertical = 14.dp), onClick = { navigate("test") })
+                    RowDivider()
+                    SuperArrow(title = "跳转日志", summary = "查看识别与跳转记录",
+                        insideMargin = PaddingValues(horizontal = 20.dp, vertical = 14.dp), onClick = { navigate("logs") })
                 }
                 Spacer(Modifier.height(24.dp))
             }
@@ -349,7 +352,7 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
     onHideRecent: (Boolean) -> Unit, onAutoRestart: (Boolean) -> Unit, onPrivilegedOpen: (Boolean) -> Unit,
     browserLabel: String, chooseBrowser: () -> Unit, mode: Int, onMode: (Int) -> Unit, running: Boolean,
     island: Boolean, onIsland: (Boolean) -> Unit, seconds: Int, onSeconds: (Int) -> Unit,
-    notificationSettings: () -> Unit, diagnostics: () -> Unit, managePermissions: () -> Unit, logs: () -> Unit, back: () -> Unit) {
+    notificationSettings: () -> Unit, diagnostics: () -> Unit, managePermissions: () -> Unit, back: () -> Unit) {
     var about by remember { mutableStateOf(false) }
     DetailPage("设置", back) {
         Caption("后台监听")
@@ -390,8 +393,6 @@ private fun SettingsPage(hideRecent: Boolean, autoRestart: Boolean, privilegedOp
             SuperArrow(title = "运行诊断", summary = "查看监听状态、识别计数与设备信息", onClick = diagnostics)
             RowDivider()
             SuperArrow(title = "授权管理", summary = "查看通知、电池优化与自启动等权限", onClick = managePermissions)
-            RowDivider()
-            SuperArrow(title = "跳转日志", summary = "查看最近的识别、规则匹配与跳转结果", onClick = logs)
             RowDivider()
             SuperArrow(title = "关于链接岛", summary = BuildConfig.VERSION_NAME, onClick = { about = true })
         }
@@ -446,19 +447,19 @@ private fun LogsPage(json: String, clear: () -> Unit, back: () -> Unit) {
             Text("跳转日志", Modifier.weight(1f), fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
             TextButton("清空", { confirm = true }, enabled = entries.isNotEmpty())
         }
-        Text("仅本机保存最近 100 条；不记录完整链接、参数和剪贴板正文。", Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-            color = muted(), fontSize = 13.sp, lineHeight = 21.sp)
+        Text("仅本机保存最近 100 条；不记录完整链接、参数和剪贴板正文。", Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
+            color = muted(), fontSize = 12.sp, lineHeight = 18.sp)
         if (entries.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("暂无记录，复制链接或发送测试提示后可在此查看", Modifier.padding(28.dp), color = muted(), textAlign = TextAlign.Center)
-        } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        } else LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(entries) { entry ->
-                Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(18.dp)) {
+                Card(Modifier.fillMaxWidth(), cornerRadius = 12.dp, insideMargin = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(entry.optString("stage"), Modifier.weight(1f), color = Accent, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Text(format.format(java.util.Date(entry.optLong("time"))), color = muted(), fontSize = 12.sp)
+                        Text(entry.optString("stage"), Modifier.weight(1f), color = Accent, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(format.format(java.util.Date(entry.optLong("time"))), color = muted(), fontSize = 11.sp)
                     }
-                    Text(entry.optString("detail"), Modifier.padding(top = 10.dp), fontSize = 15.sp, lineHeight = 23.sp)
-                    if (entry.optString("host").isNotEmpty()) Text(entry.optString("host"), Modifier.padding(top = 6.dp), color = muted(), fontSize = 13.sp)
+                    Text(entry.optString("detail"), Modifier.padding(top = 4.dp), fontSize = 14.sp, lineHeight = 20.sp)
+                    if (entry.optString("host").isNotEmpty()) Text(entry.optString("host"), Modifier.padding(top = 2.dp), color = muted(), fontSize = 12.sp, lineHeight = 16.sp)
                 }
             }
         }
