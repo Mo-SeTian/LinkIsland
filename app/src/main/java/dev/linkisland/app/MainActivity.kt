@@ -268,7 +268,7 @@ class MainActivity : ComponentActivity() {
             catch (_: Exception) { throw IllegalArgumentException("规则无法处理此链接，请检查正则或改写模板") }
         if (route == null) return RulePreview("未命中规则", "—", "", url, "—", "不发送提示或跳转")
         val rule = "第 ${route.ruleIndex + 1} 条 · ${route.ruleName}"
-        var pkg = route.packageName
+        var pkg = CloudLinks.targetPackage(this, route.original, route.target, route.packageName)
         var label = route.label
         val capability: String
         if (pkg.isEmpty()) {
@@ -287,6 +287,7 @@ class MainActivity : ComponentActivity() {
                     resolved != null && resolved.activityInfo.exported -> "已安装，支持直接处理此链接"
                     PddLinks.nativeTarget(route.target, pkg) != null -> "已安装，打开时可尝试原生协议"
                     BaiduLinks.nativeTarget(route.target, pkg, null) != null -> "已安装，打开时可尝试百度网盘分享协议"
+                    CloudLinks.nativeTarget(route.target, pkg, null) != null -> "已安装，打开时可尝试网盘分享协议"
                     XhsLinks.supports(route.target, pkg) -> "已安装，必要时在点击后解析短链"
                     else -> "已安装，可能不支持此页面"
                 }

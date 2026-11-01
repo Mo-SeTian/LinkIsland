@@ -14,6 +14,7 @@ public final class OpenLinkActivity extends Activity {
     private boolean expanded;
     private boolean pinduoduoTried;
     private boolean baiduTried;
+    private boolean cloudTried;
     private String shareCode;
     private String nativeFallback;
     private Thread resolver;
@@ -28,6 +29,7 @@ public final class OpenLinkActivity extends Activity {
         JumpLog.step(this, logId, "点击", "已点击打开", "opening");
         if (logId.equals(Prefs.get(this).getString("prompt_log_id", ""))) PromptSafety.cancel(this);
         if (pkg == null || pkg.isEmpty()) { openBrowser(target); return; }
+        pkg = CloudLinks.targetPackage(this, original, target, pkg);
         requestOpen(new Intent(Intent.ACTION_VIEW, Uri.parse(target)).setPackage(pkg)
             .addCategory(Intent.CATEGORY_BROWSABLE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), false);
     }
@@ -92,6 +94,11 @@ public final class OpenLinkActivity extends Activity {
                 baiduTried = true;
                 record("正在通过百度网盘分享协议打开");
                 requestOpen(new Intent(intent).setData(Uri.parse(BaiduLinks.nativeTarget(intent.getDataString(), intent.getPackage(), shareCode))), false);
+            } else if (!cloudTried && targetInstalled(intent.getPackage())
+                && CloudLinks.nativeTarget(intent.getDataString(), intent.getPackage(), shareCode) != null) {
+                cloudTried = true;
+                record("正在通过网盘原生分享协议打开");
+                requestOpen(new Intent(intent).setData(Uri.parse(CloudLinks.nativeTarget(intent.getDataString(), intent.getPackage(), shareCode))), false);
             } else if (!expanded && XhsLinks.supports(intent.getDataString(), intent.getPackage()) && targetInstalled(intent.getPackage())) {
                 expandShortLink(intent);
             } else unavailableTarget();

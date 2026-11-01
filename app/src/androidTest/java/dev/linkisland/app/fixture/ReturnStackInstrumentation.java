@@ -12,6 +12,7 @@ public final class ReturnStackInstrumentation extends Instrumentation {
     private boolean hold;
     private String url;
     private String shareCode;
+    private String cloudPackage;
     private static final String[] KEYS = {"island", "privileged_open", "browser", "rules", "monitor_wanted"};
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
@@ -19,6 +20,7 @@ public final class ReturnStackInstrumentation extends Instrumentation {
         hold = "true".equals(arguments.getString("hold"));
         url = arguments.getString("url", "https://example.org/return-stack-test");
         shareCode = arguments.getString("code");
+        cloudPackage = arguments.getString("target_package");
         start();
     }
     @Override public void onStart() {
@@ -58,6 +60,9 @@ public final class ReturnStackInstrumentation extends Instrumentation {
                     : "xhs".equals(scenario) ? "[{\"name\":\"小红书\",\"type\":\"domain\",\"pattern\":\"xhslink.cn\",\"package\":\"com.xingin.xhs\"}]"
                     : "app".equals(scenario) || "missing".equals(scenario)
                     ? "[{\"name\":\"任务栈测试\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"" + pkg + "\"}]" : "[{\"name\":\"浏览器测试\",\"type\":\"regex\",\"pattern\":\"^https?://\"}]";
+                if ("cloud".equals(scenario)) rules = new org.json.JSONArray().put(new org.json.JSONObject()
+                    .put("name", "网盘测试").put("type", "domain").put("pattern", android.net.Uri.parse(url).getHost())
+                    .put("package", cloudPackage)).toString();
                 p.edit().putBoolean("island", false).putBoolean("privileged_open", false).putBoolean("monitor_wanted", false)
                     .putString("browser", "chooser".equals(scenario) ? "ask" : getContext().getPackageName())
                     .putString("rules", rules).commit();

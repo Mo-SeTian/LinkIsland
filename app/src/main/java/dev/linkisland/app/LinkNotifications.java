@@ -50,7 +50,12 @@ final class LinkNotifications {
             PromptSafety.cancel(c);
             channels(c);
             int seconds = Prefs.promptSeconds(c);
-            String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
+            String targetPackage = CloudLinks.targetPackage(c, route.original, route.target, route.packageName);
+            String label = targetPackage.isEmpty() ? BrowserAccess.label(c) : route.label;
+            if (!targetPackage.equals(route.packageName)) {
+                label = c.getPackageManager().getApplicationLabel(c.getPackageManager().getApplicationInfo(targetPackage, 0)).toString();
+                JumpLog.step(c, id, "匹配", "原目标未安装或已停用，使用已安装的夸克应用", "");
+            }
             JumpLog.matched(c, id, route.ruleKey, "命中规则「" + route.ruleName + "」，目标：" + label);
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (!nm.areNotificationsEnabled() || nm.getNotificationChannel(PROMPTS).getImportance() == NotificationManager.IMPORTANCE_NONE) {
@@ -60,7 +65,7 @@ final class LinkNotifications {
             }
             boolean hasCode = PanShareCodes.supports(url) && PanShareCodes.valid(code);
             Intent open = new Intent(c, OpenLinkActivity.class).putExtra("original", route.original)
-                .putExtra("target", route.target).putExtra("package", route.packageName).putExtra("log_id", id)
+                .putExtra("target", route.target).putExtra("package", targetPackage).putExtra("log_id", id)
                 // An empty-affinity task must never bring MainActivity above the source app.
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
             if (hasCode) open.putExtra("share_code", code);
@@ -81,7 +86,7 @@ final class LinkNotifications {
             String title = "使用 " + label + " 打开？";
             // Show only the hostname; query strings and clipboard text never appear in diagnostics.
             String host = URIHost(url);
-            Icon targetIcon = Icon.createWithBitmap(TargetAppIcon.load(c, route.packageName));
+            Icon targetIcon = Icon.createWithBitmap(TargetAppIcon.load(c, targetPackage));
             Notification.Builder builder = new Notification.Builder(c, PROMPTS)
                 .setSmallIcon(R.drawable.ic_link).setLargeIcon(targetIcon).setContentTitle(title).setContentText(host + (hasCode ? " · 含提取码" : ""))
                 .setContentIntent(pi).setDeleteIntent(dismiss).setCategory(Notification.CATEGORY_STATUS)
