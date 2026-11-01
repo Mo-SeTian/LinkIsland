@@ -26,6 +26,7 @@ public final class UnmatchedRuleInstrumentation extends Instrumentation {
             show.setAccessible(true);
             cancel = Class.forName("dev.linkisland.app.PromptSafety", true, loader).getDeclaredMethod("cancel", Context.class);
             cancel.setAccessible(true); cancel.invoke(null, c);
+            awaitAbsent(c);
             p.edit().putString("rules", "[]").putBoolean("island", false).putInt("prompt_seconds", 30).commit();
             show.invoke(null, c, "https://example.org/unmatched?private=fixture");
             if (prompt(c) != null || p.getBoolean("prompt_active", false)) throw new AssertionError("Empty rules posted a prompt");
@@ -33,17 +34,21 @@ public final class UnmatchedRuleInstrumentation extends Instrumentation {
             if (!logs.getJSONObject(logs.length() - 1).getString("status").equals("skipped")) throw new AssertionError("Not marked skipped");
             p.edit().putString("rules", "[{\"name\":\"已命中\",\"type\":\"domain\",\"pattern\":\"example.org\"}]").commit();
             show.invoke(null, c, "https://example.org/matched");
+            long postedBy = android.os.SystemClock.uptimeMillis() + 5000;
+            while (prompt(c) == null && android.os.SystemClock.uptimeMillis() < postedBy) Thread.sleep(25);
             String id = p.getString("prompt_log_id", "");
             long deadline = p.getLong("prompt_deadline", 0), posted = prompt(c).getPostTime();
             show.invoke(null, c, "https://other.example/unmatched");
             if (prompt(c) == null || prompt(c).getPostTime() != posted || !p.getString("prompt_log_id", "").equals(id)
                 || p.getLong("prompt_deadline", 0) != deadline) throw new AssertionError("Unmatched copy disturbed previous prompt");
             cancel.invoke(null, c);
+            awaitAbsent(c);
             p.edit().putString("rules", "[{\"type\":\"regex\",\"pattern\":\"^https?://\",\"enabled\":false}]").commit();
             show.invoke(null, c, "https://example.org/disabled");
             if (prompt(c) != null || p.getBoolean("prompt_active", false)) throw new AssertionError("Disabled browser posted a prompt");
             result.putString("result", "PASS empty/disabled rules stay silent; unmatched copy preserves existing prompt identity and deadline");
-        } catch (Throwable error) { result.putString("test_error", error.getClass().getSimpleName()); }
+        } catch (Throwable error) { result.putString("test_error", error.getClass().getSimpleName()
+            + (error instanceof AssertionError ? " · " + error.getMessage() : "")); }
         finally {
             try { if (cancel != null) cancel.invoke(null, c); } catch (Exception ignored) { }
             SharedPreferences.Editor edit = p.edit();
@@ -63,5 +68,10 @@ public final class UnmatchedRuleInstrumentation extends Instrumentation {
     private static StatusBarNotification prompt(Context c) {
         for (StatusBarNotification n : c.getSystemService(NotificationManager.class).getActiveNotifications()) if (n.getId() == 101) return n;
         return null;
+    }
+    private static void awaitAbsent(Context c) throws Exception {
+        long end = android.os.SystemClock.uptimeMillis() + 5000;
+        while (prompt(c) != null && android.os.SystemClock.uptimeMillis() < end) Thread.sleep(25);
+        if (prompt(c) != null) throw new AssertionError("Cancelled prompt did not disappear");
     }
 }

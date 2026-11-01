@@ -11,12 +11,14 @@ public final class ReturnStackInstrumentation extends Instrumentation {
     private String scenario;
     private boolean hold;
     private String url;
+    private String shareCode;
     private static final String[] KEYS = {"island", "privileged_open", "browser", "rules", "monitor_wanted"};
     @Override public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         scenario = arguments.getString("scenario", "browser");
         hold = "true".equals(arguments.getString("hold"));
         url = arguments.getString("url", "https://example.org/return-stack-test");
+        shareCode = arguments.getString("code");
         start();
     }
     @Override public void onStart() {
@@ -50,16 +52,19 @@ public final class ReturnStackInstrumentation extends Instrumentation {
                     }
                     edit.commit();
                 }
-                String pkg = "xhs".equals(scenario) ? "com.xingin.xhs"
+                String pkg = "baidu".equals(scenario) ? "com.baidu.netdisk" : "xhs".equals(scenario) ? "com.xingin.xhs"
                     : "missing".equals(scenario) ? "dev.linkisland.missing" : getContext().getPackageName();
-                String rules = "xhs".equals(scenario) ? "[{\"name\":\"小红书\",\"type\":\"domain\",\"pattern\":\"xhslink.cn\",\"package\":\"com.xingin.xhs\"}]"
+                String rules = "baidu".equals(scenario) ? "[{\"name\":\"百度网盘\",\"type\":\"domain\",\"pattern\":\"pan.baidu.com\",\"package\":\"com.baidu.netdisk\"}]"
+                    : "xhs".equals(scenario) ? "[{\"name\":\"小红书\",\"type\":\"domain\",\"pattern\":\"xhslink.cn\",\"package\":\"com.xingin.xhs\"}]"
                     : "app".equals(scenario) || "missing".equals(scenario)
                     ? "[{\"name\":\"任务栈测试\",\"type\":\"domain\",\"pattern\":\"example.org\",\"package\":\"" + pkg + "\"}]" : "[{\"name\":\"浏览器测试\",\"type\":\"regex\",\"pattern\":\"^https?://\"}]";
                 p.edit().putBoolean("island", false).putBoolean("privileged_open", false).putBoolean("monitor_wanted", false)
                     .putString("browser", "chooser".equals(scenario) ? "ask" : getContext().getPackageName())
                     .putString("rules", rules).commit();
-                invoke(c, "dev.linkisland.app.LinkNotifications", "show",
+                if (shareCode == null) invoke(c, "dev.linkisland.app.LinkNotifications", "show",
                     new Class<?>[]{Context.class, String.class}, c, url);
+                else invoke(c, "dev.linkisland.app.LinkNotifications", "show",
+                    new Class<?>[]{Context.class, String.class, String.class}, c, url, shareCode);
                 ready.createNewFile();
                 if (hold) {
                     long deadline = android.os.SystemClock.elapsedRealtime() + 30_000;

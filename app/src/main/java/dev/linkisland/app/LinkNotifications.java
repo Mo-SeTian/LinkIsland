@@ -58,10 +58,12 @@ final class LinkNotifications {
                 JumpLog.step(c, id, "提示", "通知权限或提示通道关闭，未发送", "failed");
                 return;
             }
+            boolean hasCode = PanShareCodes.supports(url) && PanShareCodes.valid(code);
             Intent open = new Intent(c, OpenLinkActivity.class).putExtra("original", route.original)
                 .putExtra("target", route.target).putExtra("package", route.packageName).putExtra("log_id", id)
                 // An empty-affinity task must never bring MainActivity above the source app.
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            if (hasCode) open.putExtra("share_code", code);
             // Unique identity means an older tap can never be rebound to a newly copied link.
             open.setData(Uri.parse("linkisland:prompt/" + java.util.UUID.randomUUID()));
             PendingIntent pi = PendingIntent.getActivity(c, 3, open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_ONE_SHOT);
@@ -69,7 +71,6 @@ final class LinkNotifications {
                 .putExtra("log_id", id).setData(Uri.parse("linkisland:dismiss/" + id)), PendingIntent.FLAG_IMMUTABLE);
             Notification.Action openAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_link), "打开", pi).build();
             Notification.Action dismissAction = new Notification.Action.Builder(null, "忽略", dismiss).build();
-            boolean hasCode = PanShareCodes.supports(url) && PanShareCodes.valid(code);
             Notification.Action copyAction = null;
             if (hasCode) {
                 Intent copy = new Intent(c, CopyCodeReceiver.class).putExtra("log_id", id).putExtra("code", code)
@@ -79,10 +80,10 @@ final class LinkNotifications {
             }
             String title = "使用 " + label + " 打开？";
             // Show only the hostname; query strings and clipboard text never appear in diagnostics.
-            String host = URIHost(url) + (hasCode ? " · 含提取码" : "");
+            String host = URIHost(url);
             Icon targetIcon = Icon.createWithBitmap(TargetAppIcon.load(c, route.packageName));
             Notification.Builder builder = new Notification.Builder(c, PROMPTS)
-                .setSmallIcon(R.drawable.ic_link).setLargeIcon(targetIcon).setContentTitle(title).setContentText(host)
+                .setSmallIcon(R.drawable.ic_link).setLargeIcon(targetIcon).setContentTitle(title).setContentText(host + (hasCode ? " · 含提取码" : ""))
                 .setContentIntent(pi).setDeleteIntent(dismiss).setCategory(Notification.CATEGORY_STATUS)
                 .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true)
                 .setTimeoutAfter(seconds * 1000L).setShowWhen(false).setOnlyAlertOnce(false)
@@ -98,9 +99,11 @@ final class LinkNotifications {
             if (Prefs.get(c).getBoolean("island", true)) {
                 try {
                     Bundle extras = new Bundle(), actions = new Bundle(), pics = new Bundle();
-                    actions.putParcelable("miui.focus.action_open", openAction);
+                    actions.putParcelable("miui.focus.action_open", hasCode
+                        ? new Notification.Action.Builder(IslandActionIcon.open(c), openAction.title, pi).build() : openAction);
                     actions.putParcelable("miui.focus.action_dismiss", dismissAction);
-                    if (copyAction != null) actions.putParcelable("miui.focus.action_copy_code", copyAction);
+                    if (copyAction != null) actions.putParcelable("miui.focus.action_copy_code",
+                        new Notification.Action.Builder(IslandActionIcon.copy(c), copyAction.title, copyAction.actionIntent).build());
                     pics.putParcelable(IslandPayload.ICON, targetIcon);
                     boolean modern = android.provider.Settings.System.getInt(c.getContentResolver(), "notification_focus_protocol", 0) >= 3;
                     JSONObject payload = IslandPayload.create(label, host, modern, seconds, hasCode);

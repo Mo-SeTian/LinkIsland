@@ -51,7 +51,7 @@ public final class ShareCodeInstrumentation extends Instrumentation {
                 stage = island ? "island copy" : "ordinary copy";
                 p.edit().putBoolean("island", island).commit();
                 clipboard.setPrimaryClip(ClipData.newPlainText("fixture", "before-copy"));
-                show.invoke(null, c, url, "a1B2");
+                post(show, c, url, "a1B2");
                 check(text(clipboard).equals("before-copy"), "Prompt modified clipboard before a tap");
                 StatusBarNotification posted = prompt(c);
                 Notification.Action copy = copy(posted);
@@ -62,6 +62,27 @@ public final class ShareCodeInstrumentation extends Instrumentation {
                 if (island) {
                     JSONObject payload = new JSONObject(posted.getNotification().extras.getString("miui.focus.param"));
                     check(!payload.toString().contains("a1B2") && !payload.getJSONObject("param_v2").has("textButton"), "Unsafe or private island data");
+                    check("pan.baidu.com".equals(payload.getJSONObject("param_v2").getJSONObject("iconTextInfo").getString("content")), "Island domain text is crowded by status labels");
+                    Bundle actions = posted.getNotification().extras.getBundle("miui.focus.actions");
+                    for (String name : new String[]{"open", "copy_code"}) {
+                        Notification.Action action = actions.getParcelable("miui.focus.action_" + name);
+                        check(action.getIcon().getType() == android.graphics.drawable.Icon.TYPE_BITMAP, "Island action is unpadded resource artwork");
+                        android.graphics.Bitmap image = android.graphics.Bitmap.createBitmap(224, 224, android.graphics.Bitmap.Config.ARGB_8888);
+                        android.graphics.drawable.Drawable drawable = action.getIcon().loadDrawable(c);
+                        drawable.setBounds(0, 0, 224, 224); drawable.draw(new android.graphics.Canvas(image));
+                        int minX = 224, minY = 224, maxX = 0, maxY = 0, whiteMinX = 224, whiteMaxX = 0;
+                        for (int y = 0; y < 224; y++) for (int x = 0; x < 224; x++) {
+                            int pixel = image.getPixel(x, y);
+                            if (android.graphics.Color.alpha(pixel) > 0) { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); }
+                            if (android.graphics.Color.alpha(pixel) > 200 && android.graphics.Color.red(pixel) > 235
+                                && android.graphics.Color.green(pixel) > 235 && android.graphics.Color.blue(pixel) > 235) { whiteMinX = Math.min(whiteMinX, x); whiteMaxX = Math.max(whiteMaxX, x); }
+                        }
+                        try (java.io.FileOutputStream output = new java.io.FileOutputStream(new java.io.File(c.getCacheDir(), name + "-action-fixture.png"))) {
+                            image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, output);
+                        }
+                        check(minX >= 24 && minY >= 24 && maxX < 200 && maxY < 200, "Missing action outer padding");
+                        check(whiteMaxX > whiteMinX && whiteMaxX - whiteMinX < 90, "Action glyph fills the button");
+                    }
                 }
                 String id = p.getString("prompt_log_id", ""); long deadline = p.getLong("prompt_deadline", 0);
                 // The real BroadcastReceiver must copy while another task owns the foreground.
@@ -76,7 +97,7 @@ public final class ShareCodeInstrumentation extends Instrumentation {
                     && deadline == p.getLong("prompt_deadline", 0) && prompt(c).getPostTime() == posted.getPostTime(), "Copy replaced or extended prompt");
 
                 stage = "stale and expired actions";
-                show.invoke(null, c, url, "z9Y8");
+                post(show, c, url, "z9Y8");
                 Notification.Action current = copy(prompt(c));
                 clipboard.setPrimaryClip(ClipData.newPlainText("fixture", "current-marker"));
                 copy.actionIntent.send(); Thread.sleep(150);
@@ -91,12 +112,13 @@ public final class ShareCodeInstrumentation extends Instrumentation {
                 check(text(clipboard).equals("expired-marker"), "Cancelled action overwrote clipboard");
             }
             stage = "non-share and privacy";
-            show.invoke(null, c, url, null); check(copy(prompt(c)) == null, "Missing code offered copy");
-            show.invoke(null, c, "https://example.org/fixture", "a1B2"); check(copy(prompt(c)) == null, "Non-cloud URL offered password copy");
+            post(show, c, url, null); check(copy(prompt(c)) == null, "Missing code offered copy");
+            post(show, c, "https://example.org/fixture", "a1B2"); check(copy(prompt(c)) == null, "Non-cloud URL offered password copy");
             check(!p.getAll().toString().contains("a1B2") && !p.getAll().toString().contains("z9Y8"), "Code saved in settings");
             check(!history.getAll().toString().contains("a1B2") && !history.getAll().toString().contains("z9Y8"), "Code saved in history");
             result.putString("result", "PASS copy only on tap; background write keeps source task; sensitive flag; old/expired/cancelled actions rejected; prompt lifetime unchanged; no code in logs or settings");
-        } catch (Throwable error) { result.putString("test_error", stage + ": " + error.getClass().getSimpleName()); }
+        } catch (Throwable error) { result.putString("test_error", stage + ": " + error.getClass().getSimpleName()
+            + (error instanceof AssertionError ? " · " + error.getMessage() : "")); }
         finally {
             try { if (cancel != null) cancel.invoke(null, c); } catch (Exception ignored) { }
             if (clipboardSaved) { if (original == null) clipboard.clearPrimaryClip(); else clipboard.setPrimaryClip(original); }
@@ -119,6 +141,14 @@ public final class ShareCodeInstrumentation extends Instrumentation {
         if (notification != null && notification.getNotification().actions != null)
             for (Notification.Action action : notification.getNotification().actions) if ("复制提取码".contentEquals(action.title)) return action;
         return null;
+    }
+    private static void post(Method show, Context c, String url, String code) throws Exception {
+        StatusBarNotification previous = prompt(c);
+        android.app.PendingIntent old = previous == null ? null : previous.getNotification().contentIntent;
+        show.invoke(null, c, url, code);
+        // NotificationManager queues posting; inspect this prompt rather than the preceding snapshot.
+        await(() -> { StatusBarNotification current = prompt(c);
+            return current != null && !java.util.Objects.equals(old, current.getNotification().contentIntent); });
     }
     private static StatusBarNotification prompt(Context c) {
         for (StatusBarNotification n : c.getSystemService(NotificationManager.class).getActiveNotifications()) if (n.getId() == 101) return n;

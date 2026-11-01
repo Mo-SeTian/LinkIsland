@@ -13,12 +13,15 @@ public final class OpenLinkActivity extends Activity {
     private String logId;
     private boolean expanded;
     private boolean pinduoduoTried;
+    private boolean baiduTried;
+    private String shareCode;
     private String nativeFallback;
     private Thread resolver;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         original = getIntent().getStringExtra("original");
         String target = getIntent().getStringExtra("target"), pkg = getIntent().getStringExtra("package");
+        shareCode = getIntent().getStringExtra("share_code");
         if (!LinkRules.isWebUrl(original == null ? "" : original) || target == null) { finish(); return; }
         logId = getIntent().getStringExtra("log_id");
         if (logId == null) logId = JumpLog.begin(this, "跳转", "打开旧提示", original, "pending");
@@ -84,6 +87,11 @@ public final class OpenLinkActivity extends Activity {
                 pinduoduoTried = true;
                 record("正在通过拼多多原生链接打开");
                 requestOpen(new Intent(intent).setData(Uri.parse(PddLinks.nativeTarget(intent.getDataString(), intent.getPackage()))), false);
+            } else if (!baiduTried && targetInstalled(intent.getPackage())
+                && BaiduLinks.nativeTarget(intent.getDataString(), intent.getPackage(), shareCode) != null) {
+                baiduTried = true;
+                record("正在通过百度网盘分享协议打开");
+                requestOpen(new Intent(intent).setData(Uri.parse(BaiduLinks.nativeTarget(intent.getDataString(), intent.getPackage(), shareCode))), false);
             } else if (!expanded && XhsLinks.supports(intent.getDataString(), intent.getPackage()) && targetInstalled(intent.getPackage())) {
                 expandShortLink(intent);
             } else unavailableTarget();

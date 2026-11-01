@@ -286,6 +286,7 @@ class MainActivity : ComponentActivity() {
                     !app.enabled -> "目标应用已停用"
                     resolved != null && resolved.activityInfo.exported -> "已安装，支持直接处理此链接"
                     PddLinks.nativeTarget(route.target, pkg) != null -> "已安装，打开时可尝试原生协议"
+                    BaiduLinks.nativeTarget(route.target, pkg, null) != null -> "已安装，打开时可尝试百度网盘分享协议"
                     XhsLinks.supports(route.target, pkg) -> "已安装，必要时在点击后解析短链"
                     else -> "已安装，可能不支持此页面"
                 }
