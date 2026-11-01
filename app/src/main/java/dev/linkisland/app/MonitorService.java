@@ -23,6 +23,7 @@ public final class MonitorService extends Service {
     private boolean bound, alive;
     private int attempts, generation;
     private long heartbeat;
+    private final Runnable pauseFinished = this::updatePause;
     private final Runnable heartbeatReceived = () -> {
         if (alive && bridge != null) heartbeat = android.os.SystemClock.uptimeMillis();
     };
@@ -31,12 +32,33 @@ public final class MonitorService extends Service {
     private final Runnable health = new Runnable() {
         @Override public void run() {
             if (!alive || bridge == null) return;
+            updatePause();
             if (MonitorPolicy.heartbeatExpired(heartbeat, android.os.SystemClock.uptimeMillis())) reconnect("监听心跳超时");
             else main.postDelayed(this, 10_000);
         }
     };
-    static void disarm(Context c) { Prefs.get(c).edit().putBoolean("monitor_wanted", false).commit(); }
+    static void disarm(Context c) { Prefs.get(c).edit().putBoolean("monitor_wanted", false).remove("pause_until").commit(); }
     static void stopListening(Context c) { disarm(c); c.stopService(new Intent(c, MonitorService.class)); }
+    static boolean paused(Context c) {
+        return MonitorPolicy.pauseRemaining(Prefs.get(c).getLong("pause_until", 0), System.currentTimeMillis()) > 0;
+    }
+    private void updatePause() {
+        main.removeCallbacks(pauseFinished);
+        long until = Prefs.get(this).getLong("pause_until", 0);
+        if (until == 0) return;
+        long remaining = MonitorPolicy.pauseRemaining(until, System.currentTimeMillis());
+        if (remaining > 0) main.postDelayed(pauseFinished, remaining);
+        else {
+            Prefs.get(this).edit().remove("pause_until").apply();
+            Prefs.status(this, "临时暂停已结束 · 继续监听");
+            updateNotification();
+        }
+    }
+    private void updateNotification() {
+        getSystemService(android.app.NotificationManager.class).notify(LinkNotifications.SERVICE_ID,
+            LinkNotifications.service(this, "root".equals(mode) ? "Root" : "Shizuku"));
+        MonitorTile.refresh(this);
+    }
     static boolean launch(String target, String pkg) {
         IClipboardBridge remote = launchBridge;
         if (remote == null) return false;
@@ -56,9 +78,13 @@ public final class MonitorService extends Service {
     private final IClipboardCallback callback = new IClipboardCallback.Stub() {
         @Override public void onHeartbeat() { main.post(heartbeatReceived); }
         @Override public void onRecognition(String result) {
-            main.post(() -> { if (alive) JumpLog.recognition(MonitorService.this, result); });
+            main.post(() -> { if (alive && !paused(MonitorService.this)) JumpLog.recognition(MonitorService.this, result); });
         }
-        @Override public void onLink(String url) { main.post(() -> { if (alive) LinkNotifications.show(MonitorService.this, url); }); }
+        @Override public void onLink(String url) { main.post(() -> {
+            if (!alive) return;
+            updatePause();
+            if (!paused(MonitorService.this)) LinkNotifications.show(MonitorService.this, url);
+        }); }
         @Override public void onDiagnostics(String diagnostics) {
             main.post(() -> {
                 if (!alive || bridge == null) return;
@@ -97,6 +123,23 @@ public final class MonitorService extends Service {
         if (intent != null && "STOP".equals(intent.getAction())) {
             disarm(this); Prefs.status(this, "监听已停止"); stopSelf(); return START_NOT_STICKY;
         }
+        if (running) updatePause();
+        if (intent != null && ("PAUSE".equals(intent.getAction()) || "CONTINUE".equals(intent.getAction()))) {
+            if (!running || !Prefs.get(this).getBoolean("monitor_wanted", false)) { stopSelf(); return START_NOT_STICKY; }
+            if ("PAUSE".equals(intent.getAction())) {
+                int minutes = intent.getIntExtra("minutes", 15);
+                if (minutes != 5 && minutes != 15 && minutes != 60) return restartMode();
+                Prefs.get(this).edit().putLong("pause_until", System.currentTimeMillis() + minutes * 60_000L).commit();
+                PromptSafety.cancel(this);
+                Prefs.status(this, "链接提示已暂停 " + minutes + " 分钟 · 到期自动恢复");
+            } else {
+                Prefs.get(this).edit().remove("pause_until").commit();
+                main.removeCallbacks(pauseFinished);
+                Prefs.status(this, "已继续监听");
+            }
+            updatePause(); updateNotification();
+            return restartMode();
+        }
         if ((intent == null || "RESUME".equals(intent.getAction()))
             && !MonitorPolicy.shouldResume(Prefs.get(this).getBoolean("monitor_wanted", false), automatic())) {
             stopSelf(); return START_NOT_STICKY;
@@ -117,6 +160,8 @@ public final class MonitorService extends Service {
         startForeground(LinkNotifications.SERVICE_ID, LinkNotifications.service(this, "root".equals(mode) ? "Root" : "Shizuku"));
         running = true;
         Prefs.get(this).edit().putBoolean("monitor_wanted", true).commit();
+        updatePause();
+        MonitorTile.refresh(this);
         connect();
         return restartMode();
     }
@@ -179,6 +224,7 @@ public final class MonitorService extends Service {
         disconnect();
         PromptSafety.cancel(this);
         Prefs.get(this).edit().putString("clipboard_diagnostics", "监听已停止").apply();
+        MonitorTile.refresh(this);
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }

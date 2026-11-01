@@ -69,7 +69,7 @@ public final class LinkRules {
     }
 
     public static final class Rule {
-        public final String name, type, pattern, packageName, replacement;
+        public final String name, type, pattern, packageName, replacement, key;
         public final boolean enabled;
         private final Pattern regex;
         public Rule(JSONObject json) {
@@ -86,6 +86,15 @@ public final class LinkRules {
             if (type.equals("domain") && !pattern.matches("[A-Za-z0-9.-]+"))
                 throw new IllegalArgumentException("域名只填 github.com，不含协议和路径");
             regex = type.equals("regex") ? Pattern.compile(pattern) : null;
+            // Stable across sorting, renaming and enable/disable; logs retain only this digest.
+            try {
+                byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(
+                    new JSONArray().put(type).put(pattern).put(packageName).put(replacement).toString()
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                StringBuilder hex = new StringBuilder(64);
+                for (byte b : digest) hex.append(Character.forDigit((b & 255) >> 4, 16)).append(Character.forDigit(b & 15, 16));
+                key = hex.toString();
+            } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
         }
         boolean matches(String url) {
             if (!enabled) return false;
@@ -114,6 +123,58 @@ public final class LinkRules {
         List<Rule> rules = new ArrayList<>();
         for (int i = 0; i < array.length(); i++) rules.add(new Rule(array.getJSONObject(i)));
         return rules;
+    }
+
+    /** One immutable snapshot; changing any JSON field invalidates it before the next lookup. */
+    static final class Cache {
+        private String json;
+        private List<Rule> rules;
+        synchronized List<Rule> get(String current) throws Exception {
+            if (!current.equals(json)) {
+                List<Rule> parsed = List.copyOf(parse(current));
+                rules = parsed;
+                json = current;
+            }
+            return rules;
+        }
+    }
+
+    static List<Integer> matchingRules(String url, List<Rule> rules) {
+        if (!isWebUrl(url)) throw new IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接");
+        List<Integer> matches = new ArrayList<>();
+        for (int i = 0; i < rules.size(); i++) if (rules.get(i).matches(url)) matches.add(i);
+        return matches;
+    }
+
+    static List<String> conflicts(List<Rule> rules) {
+        List<String> warnings = new ArrayList<>();
+        for (int i = 0; i < rules.size(); i++) {
+            Rule current = rules.get(i);
+            if (!current.enabled) continue;
+            for (int j = 0; j < i; j++) {
+                Rule earlier = rules.get(j);
+                if (!earlier.enabled) continue;
+                boolean all = earlier.type.equals("regex") && earlier.pattern.equals(BROWSER_PATTERN);
+                boolean same = earlier.type.equals(current.type) && (earlier.type.equals("regex")
+                    ? earlier.pattern.equals(current.pattern) : earlier.pattern.equalsIgnoreCase(current.pattern));
+                if (all || same) {
+                    warnings.add("第 " + (i + 1) + " 条「" + current.name + "」被第 " + (j + 1) + " 条「" + earlier.name
+                        + "」遮挡：" + (all ? "前面的规则匹配所有网页。" : "匹配条件相同。"));
+                    break;
+                }
+            }
+        }
+        return warnings;
+    }
+
+    static int findRule(String key, List<Rule> rules) {
+        if (key == null || key.isEmpty()) return -1;
+        int found = -1;
+        for (int i = 0; i < rules.size(); i++) if (rules.get(i).key.equals(key)) {
+            if (found >= 0) return -1; // Never guess between duplicate rules.
+            found = i;
+        }
+        return found;
     }
 
     /** Preserve existing objects and their relative priority, including disabled ones. */
@@ -166,10 +227,11 @@ public final class LinkRules {
     }
 
     public static final class Route {
-        public final String original, target, packageName, label, ruleName;
+        public final String original, target, packageName, label, ruleName, ruleKey;
         public final int ruleIndex;
-        Route(String original, String target, String packageName, String label, String ruleName, int ruleIndex) {
+        Route(String original, String target, String packageName, String label, String ruleName, int ruleIndex, String ruleKey) {
             this.original = original; this.target = target; this.packageName = packageName; this.label = label; this.ruleName = ruleName; this.ruleIndex = ruleIndex;
+            this.ruleKey = ruleKey;
         }
     }
     public static Route resolve(String url, List<Rule> rules) {
@@ -177,7 +239,7 @@ public final class LinkRules {
         for (int i = 0; i < rules.size(); i++) {
             Rule rule = rules.get(i);
             if (rule.matches(url)) return new Route(url, rule.rewrite(url), rule.packageName,
-                rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name, i);
+                rule.packageName.isEmpty() ? "默认浏览器" : rule.name, rule.name, i, rule.key);
         }
         return null;
     }

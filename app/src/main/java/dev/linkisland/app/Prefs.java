@@ -8,8 +8,10 @@ import java.util.Locale;
 
 final class Prefs {
     static final int DEFAULT_RULES_REVISION = 4;
+    private static final LinkRules.Cache RULE_CACHE = new LinkRules.Cache();
     static SharedPreferences get(Context c) { return c.getSharedPreferences("settings", Context.MODE_PRIVATE); }
     static String rules(Context c) { return get(c).getString("rules", LinkRules.DEFAULTS); }
+    static java.util.List<LinkRules.Rule> parsedRules(Context c) throws Exception { return RULE_CACHE.get(rules(c)); }
     static void ensureDefaultRules(Context c) {
         SharedPreferences p = get(c);
         int revision = p.getInt("default_rules_revision", 0);

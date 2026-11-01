@@ -27,4 +27,13 @@ public final class MonitorPolicyTest {
         assertFalse(MonitorPolicy.heartbeatExpired(0, 60_000));
         assertFalse(MonitorPolicy.heartbeatExpired(2000, 1000));
     }
+    @Test public void temporaryPauseEndsAtDeadlineAndDoesNotChangeRecoveryPolicy() {
+        assertEquals(5000, MonitorPolicy.pauseRemaining(10_000, 5000));
+        assertEquals(1, MonitorPolicy.pauseRemaining(10_000, 9999));
+        assertEquals(0, MonitorPolicy.pauseRemaining(10_000, 10_000));
+        assertEquals(0, MonitorPolicy.pauseRemaining(10_000, 11_000));
+        assertEquals(0, MonitorPolicy.pauseRemaining(0, 5000));
+        assertTrue(MonitorPolicy.shouldResume(true, true));
+        assertFalse(MonitorPolicy.shouldResume(false, true));
+    }
 }

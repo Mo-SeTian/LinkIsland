@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
     private var mode by mutableIntStateOf(0)
     private var running by mutableStateOf(false)
     private var connecting by mutableStateOf(false)
+    private var pauseUntil by mutableStateOf(0L)
     private var status by mutableStateOf("")
     private var capture by mutableStateOf("")
     private var rules by mutableStateOf(LinkRules.DEFAULTS)
@@ -82,6 +83,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             LinkIslandUi(
                 screen = screen, mode = mode, running = running, connecting = connecting,
+                pauseUntil = pauseUntil, onPauseMonitor = { minutes ->
+                    startService(Intent(this, MonitorService::class.java).setAction(if (minutes == 0) "CONTINUE" else "PAUSE")
+                        .putExtra("minutes", minutes))
+                },
                 status = status, capture = capture, rulesJson = rules, island = island,
                 browsers = browsers, browserChoice = browserChoice, browserLabel = browserLabel,
                 hideRecent = hideRecent, autoRestart = autoRestart, privilegedOpen = privilegedOpen,
@@ -154,6 +159,7 @@ class MainActivity : ComponentActivity() {
         privilegedOpen = preferences.getBoolean("privileged_open", false)
         mode = preferences.getInt("mode", 0)
         running = MonitorService.running
+        pauseUntil = preferences.getLong("pause_until", 0)
         status = preferences.getString("status", "") ?: ""
         capture = if (running && MonitorService.diagnostics.isNotEmpty()) MonitorService.diagnostics
             else preferences.getString("clipboard_diagnostics", "") ?: ""
@@ -239,13 +245,13 @@ class MainActivity : ComponentActivity() {
         startMonitor()
     }
     private fun startMonitor() {
-        preferences.edit().putBoolean("monitor_wanted", true).putLong("monitor_started_at", System.currentTimeMillis()).commit()
+        preferences.edit().putBoolean("monitor_wanted", true).remove("pause_until").putLong("monitor_started_at", System.currentTimeMillis()).commit()
         startForegroundService(Intent(this, MonitorService::class.java).putExtra("mode", if (mode == 0) "shizuku" else "root"))
     }
     private fun testLink(text: String): String? {
         val url = LinkRules.extract(text) ?: return "请输入有效的 HTTP / HTTPS 链接"
         return try {
-            if (LinkRules.resolve(url, LinkRules.parse(rules)) == null) return "未命中规则，不发送提示或跳转"
+            if (LinkRules.resolve(url, Prefs.parsedRules(this)) == null) return "未命中规则，不发送提示或跳转"
             if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
                 return "允许通知后，请再次发送测试提示"
@@ -257,7 +263,8 @@ class MainActivity : ComponentActivity() {
     }
     private fun previewLink(text: String): RulePreview {
         val url = LinkRules.extract(text) ?: throw IllegalArgumentException("请输入有效的 HTTP / HTTPS 链接")
-        val route = try { LinkRules.resolve(url, LinkRules.parse(rules)) }
+        val parsed = Prefs.parsedRules(this)
+        val route = try { LinkRules.resolve(url, parsed) }
             catch (_: Exception) { throw IllegalArgumentException("规则无法处理此链接，请检查正则或改写模板") }
         if (route == null) return RulePreview("未命中规则", "—", "", url, "—", "不发送提示或跳转")
         val rule = "第 ${route.ruleIndex + 1} 条 · ${route.ruleName}"
@@ -285,7 +292,10 @@ class MainActivity : ComponentActivity() {
             } catch (_: PackageManager.NameNotFoundException) { "未检测到目标应用" }
             catch (_: RuntimeException) { "无法确认目标应用状态" }
         }
-        return RulePreview(rule, label, pkg, url, route.target, capability)
+        val matches = LinkRules.matchingRules(url, parsed).joinToString("\n") { index ->
+            "第 ${index + 1} 条 · ${parsed[index].name}：" + if (index == route.ruleIndex) "优先命中，使用此规则" else "也匹配，因排序靠后未使用"
+        }
+        return RulePreview(rule, label, pkg, url, route.target, capability, matches)
     }
     private fun writeBackup(uri: Uri) {
         val document = try { ConfigBackup.create(Prefs.rules(this), preferences.all, BuildConfig.VERSION_NAME).toString(2) }
@@ -357,7 +367,6 @@ class MainActivity : ComponentActivity() {
             val updated = if (index < 0) LinkRules.appendRule(rules, rule) else all.put(index, rule).toString()
             LinkRules.parse(updated)
             preferences.edit().putString("rules", updated).apply()
-            navigate("rules")
             null
         } catch (_: Exception) { "请检查匹配内容、正则语法和目标 App 包名" }
     }
@@ -365,7 +374,6 @@ class MainActivity : ComponentActivity() {
         val all = JSONArray(rules)
         all.remove(index)
         preferences.edit().putString("rules", all.toString()).apply()
-        navigate("rules")
     }
     private fun installedApps(): List<Pair<String, String>> =
         packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0)

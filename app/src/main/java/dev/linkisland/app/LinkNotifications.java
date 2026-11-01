@@ -28,14 +28,15 @@ final class LinkNotifications {
         PendingIntent home = PendingIntent.getActivity(c, 1, new Intent(c, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(c, 2, new Intent(c, MonitorService.class).setAction("STOP"), PendingIntent.FLAG_IMMUTABLE);
         return new Notification.Builder(c, MONITOR).setSmallIcon(R.drawable.ic_link)
-            .setContentTitle("链接岛 · " + mode).setContentText("监听复制事件 · 点击管理")
+            .setContentTitle("链接岛 · " + mode).setContentText(MonitorService.paused(c)
+                ? "链接提示已暂停 · 到期自动恢复" : "监听复制事件 · 点击管理")
             .setContentIntent(home).setOngoing(true).setShowWhen(false)
             .addAction(new Notification.Action.Builder(null, "停止监听", stop).build()).build();
     }
     static void show(Context c, String url) {
         String id = JumpLog.begin(c, "识别", "已识别网页链接", url, "pending");
         try {
-            LinkRules.Route route = LinkRules.resolve(url, LinkRules.parse(Prefs.rules(c)));
+            LinkRules.Route route = LinkRules.resolve(url, Prefs.parsedRules(c));
             if (route == null) {
                 JumpLog.step(c, id, "匹配", "未命中规则，未提示或跳转", "skipped");
                 return;
@@ -47,7 +48,7 @@ final class LinkNotifications {
             channels(c);
             int seconds = Prefs.promptSeconds(c);
             String label = route.packageName.isEmpty() ? BrowserAccess.label(c) : route.label;
-            JumpLog.step(c, id, "匹配", "命中规则「" + route.ruleName + "」，目标：" + label, "");
+            JumpLog.matched(c, id, route.ruleKey, "命中规则「" + route.ruleName + "」，目标：" + label);
             NotificationManager nm = c.getSystemService(NotificationManager.class);
             if (!nm.areNotificationsEnabled() || nm.getNotificationChannel(PROMPTS).getImportance() == NotificationManager.IMPORTANCE_NONE) {
                 Prefs.status(c, "提示被关闭 · 请开启通知权限和链接跳转提示通道");

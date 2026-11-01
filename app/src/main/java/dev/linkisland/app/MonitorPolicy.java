@@ -7,4 +7,5 @@ final class MonitorPolicy {
     }
     static boolean shouldResume(boolean wanted, boolean automatic) { return wanted && automatic; }
     static boolean heartbeatExpired(long last, long now) { return last > 0 && now - last >= 30_000; }
+    static long pauseRemaining(long until, long now) { return Math.max(0, until - now); }
 }

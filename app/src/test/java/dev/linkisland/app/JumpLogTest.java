@@ -6,6 +6,15 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public final class JumpLogTest {
+    @Test public void ruleDigestAttachesToItsOwnCopyAndNeverResurrectsClearedLogs() throws Exception {
+        String old = JumpLog.begin("[]", "copy", "识别", "已识别", "https://example.org/private?token=hidden", 1, "pending");
+        String key = LinkRules.parse(LinkRules.DEFAULTS).get(0).key;
+        String updated = JumpLog.step(old, "copy", "匹配", "已命中", 2, "", key);
+        assertEquals(key, new JSONArray(updated).getJSONObject(0).getString("rule_key"));
+        assertFalse(updated.contains("/private")); assertFalse(updated.contains("hidden"));
+        assertEquals(old, JumpLog.step(old, "another-copy", "匹配", "已命中", 2, "", key));
+        assertEquals("[]", JumpLog.step("[]", "copy", "匹配", "已命中", 2, "", key));
+    }
     @Test public void oneCopyRetainsItsFullFlowWithoutPrivateUrlComponents() throws Exception {
         String log = JumpLog.begin("[]", "copy-1", "识别", "已识别网页链接", "https://user:password@example.org/private/note?token=secret#fragment", 1000, "pending");
         log = JumpLog.step(log, "copy-1", "提示", "已发送提示", 1100, "");

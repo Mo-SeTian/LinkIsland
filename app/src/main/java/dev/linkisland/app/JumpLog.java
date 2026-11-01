@@ -27,6 +27,10 @@ final class JumpLog {
         String old = read(c), updated = step(old, id, stage, detail, System.currentTimeMillis(), status);
         if (!old.equals(updated)) save(c, updated);
     }
+    static synchronized void matched(Context c, String id, String key, String detail) {
+        String old = read(c), updated = step(old, id, "匹配", detail, System.currentTimeMillis(), "", key);
+        if (!old.equals(updated)) save(c, updated);
+    }
     static synchronized void recognition(Context c, String detail) {
         try {
             JSONArray groups = new JSONArray(read(c));
@@ -63,6 +67,9 @@ final class JumpLog {
         } catch (org.json.JSONException e) { return old; }
     }
     static String step(String old, String id, String stage, String detail, long time, String status) {
+        return step(old, id, stage, detail, time, status, "");
+    }
+    static String step(String old, String id, String stage, String detail, long time, String status, String ruleKey) {
         if (id == null || id.isEmpty()) return old;
         try {
             JSONArray groups = new JSONArray(old);
@@ -70,6 +77,7 @@ final class JumpLog {
                 JSONObject group = groups.getJSONObject(i);
                 if (!id.equals(group.optString("id"))) continue;
                 addEvent(group, stage, detail, time, status);
+                if (!ruleKey.isEmpty()) group.put("rule_key", ruleKey);
                 return groups.toString();
             }
         } catch (org.json.JSONException ignored) { }

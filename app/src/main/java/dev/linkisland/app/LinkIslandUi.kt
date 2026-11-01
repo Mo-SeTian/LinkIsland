@@ -65,11 +65,12 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 private val Accent = Color(0xFF287EFF)
 private val PageBackground = Color(0xFFF5F6F8)
 internal data class RulePreview(val rule: String, val app: String, val packageName: String,
-    val original: String, val target: String, val capability: String)
+    val original: String, val target: String, val capability: String, val matches: String = "")
 
 @Composable
 internal fun LinkIslandUi(
     screen: String, mode: Int, running: Boolean, connecting: Boolean,
+    pauseUntil: Long, onPauseMonitor: (Int) -> Unit,
     status: String, capture: String, rulesJson: String, island: Boolean,
     hideRecent: Boolean, autoRestart: Boolean, privilegedOpen: Boolean,
     promptSeconds: Int, onPromptSeconds: (Int) -> Unit, jumpLog: String, onClearLog: () -> Unit,
@@ -92,24 +93,29 @@ internal fun LinkIslandUi(
     else lightColorScheme(primary = Accent, surface = PageBackground, background = PageBackground, surfaceContainer = Color.White)
     MiuixTheme(colors = colors) {
         BackHandler(screen != "home") {
-            onNavigate(if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics", "backup")) "settings" else "home")
+            onNavigate(if (screen.startsWith("logedit:") || screen.startsWith("lognew:")) "logs" else if (screen.startsWith("edit:")) "rules" else if (screen in listOf("permissions", "browsers", "diagnostics", "backup")) "settings" else "home")
         }
         Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).imePadding()) {
                 Crossfade(targetState = screen, label = "page") { page ->
                     when {
-                        page == "home" -> HomePage(running, connecting, status, rulesJson, onNavigate, onToggle)
+                        page == "home" -> HomePage(running, connecting, pauseUntil, onPauseMonitor, status, rulesJson, onNavigate, onToggle)
                         page == "rules" -> RulesPage(rulesJson, onNavigate, onReorderRules)
-                        page.startsWith("edit:") -> {
-                            val index = page.substringAfter(":").toInt()
-                            val initial = JSONArray(rulesJson).optJSONObject(index) ?: JSONObject()
-                            RuleEditor(index, initial, { onNavigate("rules") }, onSaveRule, onDeleteRule, installedApps)
+                        page.startsWith("edit:") || page.startsWith("logedit:") || page.startsWith("lognew:") -> {
+                            val fromLog = !page.startsWith("edit:")
+                            val index = if (page.startsWith("lognew:")) -1 else page.substringAfter(":").toInt()
+                            val initial = if (page.startsWith("lognew:")) JSONObject().also { WebsiteRules.write(it, page.substringAfter(":"), true) }
+                                else JSONArray(rulesJson).optJSONObject(index) ?: JSONObject()
+                            val back = { onNavigate(if (fromLog) "logs" else "rules") }
+                            RuleEditor(index, initial, back,
+                                { i, rule -> onSaveRule(i, rule).also { if (it == null) back() } },
+                                { i -> onDeleteRule(i); back() }, installedApps)
                         }
                         page == "test" -> TestPage(island, promptSeconds, onIsland, onTest, onPreview, { onNavigate("home") })
                         page == "browsers" -> BrowserPage(browsers, browserChoice, onBrowser, { onNavigate("settings") })
                         page == "permissions" -> PermissionsPage(permissions, onPermission, onRefreshPermissions, { onNavigate("settings") })
                         page == "diagnostics" -> DiagnosticsPage(running, status, capture, device, onProbe, onRefresh, { onNavigate("settings") })
-                        page == "logs" -> LogsPage(jumpLog, onClearLog, { onNavigate("home") })
+                        page == "logs" -> LogsPage(jumpLog, rulesJson, onNavigate, onClearLog, { onNavigate("home") })
                         page == "backup" -> BackupPage(rulesJson, backupBusy, backupMessage, pendingBackup, onExport, onImport, onApplyBackup, onCancelBackup, { onNavigate("settings") })
                         else -> SettingsPage(hideRecent, autoRestart, privilegedOpen, onHideRecent, onAutoRestart, onPrivilegedOpen, browserLabel, { onNavigate("browsers") }, mode, onMode, running, island, onIsland, promptSeconds, onPromptSeconds,
                             onNotificationSettings, { onNavigate("diagnostics") }, { onNavigate("permissions") }, { onNavigate("backup") }, { onNavigate("home") })
@@ -129,8 +135,11 @@ internal fun LinkIslandUi(
 }
 
 @Composable
-private fun HomePage(running: Boolean, connecting: Boolean, status: String, rules: String,
+private fun HomePage(running: Boolean, connecting: Boolean, pauseUntil: Long, onPauseMonitor: (Int) -> Unit, status: String, rules: String,
     navigate: (String) -> Unit, onToggle: () -> Unit) {
+    var pausePicker by remember { mutableStateOf(false) }
+    val paused = running && pauseUntil > System.currentTimeMillis()
+    val resumeTime = if (paused) java.text.SimpleDateFormat("HH:mm", java.util.Locale.SIMPLIFIED_CHINESE).format(java.util.Date(pauseUntil)) else ""
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxHeight < 740.dp
         Column(Modifier.fillMaxSize().padding(horizontal = 20.dp)) {
@@ -156,7 +165,7 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                             .clip(CircleShape)
                             .semantics {
                                 contentDescription = action
-                                stateDescription = if (connecting) "正在连接" else if (running) "已开启" else "未开启"
+                                stateDescription = if (paused) "临时暂停" else if (connecting) "正在连接" else if (running) "已开启" else "未开启"
                             },
                         cornerRadius = diameter / 2,
                         insideMargin = PaddingValues(0.dp),
@@ -170,12 +179,15 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                     }
                 }
                 Spacer(Modifier.height(24.dp))
-                Text(if (connecting) "正在连接权限服务" else if (running) "监听已开启" else "监听未开启",
+                Text(if (paused) "链接提示已暂停" else if (connecting) "正在连接权限服务" else if (running) "监听已开启" else "监听未开启",
                     Modifier.fillMaxWidth(), fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 val lastOperationFailed = listOf("失败", "超时", "未授权", "不可用").any { status.contains(it) }
-                Text(if (connecting) "连接中，可点击上方按钮停止" else if (running) "复制链接后，将提示是否打开"
+                Text(if (paused) "$resumeTime 自动恢复，暂停期间的链接不补发" else if (connecting) "连接中，可点击上方按钮停止" else if (running) "复制链接后，将提示是否打开"
                     else if (lastOperationFailed) "上次操作未成功，可在设置中查看诊断" else "点击上方按钮开启",
                     Modifier.fillMaxWidth().padding(top = 8.dp), color = muted(), fontSize = 14.sp, textAlign = TextAlign.Center)
+                if (running) TextButton(if (paused) "立即继续" else "临时暂停", {
+                    if (paused) onPauseMonitor(0) else pausePicker = true
+                }, Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp))
                 Spacer(Modifier.height(22.dp))
                 Card(Modifier.fillMaxWidth(), cornerRadius = 22.dp) {
                     SuperArrow(title = "匹配规则", summary = "按关键词或域名匹配",
@@ -194,11 +206,19 @@ private fun HomePage(running: Boolean, connecting: Boolean, status: String, rule
                 fontSize = 12.sp, color = muted(), textAlign = TextAlign.Center)
         }
     }
+    SuperDialog(show = pausePicker, title = "临时暂停链接提示", summary = "到期自动恢复，也可提前继续。关闭监听后不会自行恢复。", onDismissRequest = { pausePicker = false }) {
+        listOf(5, 15, 60).forEach { minutes ->
+            TextButton("暂停 $minutes 分钟", { onPauseMonitor(minutes); pausePicker = false }, Modifier.fillMaxWidth())
+        }
+        TextButton("取消", { pausePicker = false }, Modifier.fillMaxWidth())
+    }
 }
 
 @Composable
 private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<Int>) -> Unit) {
     val rules = remember(json) { JSONArray(json).let { array -> List(array.length()) { array.getJSONObject(it) } } }
+    val warnings = remember(json) { LinkRules.conflicts(LinkRules.parse(json)) }
+    var showConflicts by remember { mutableStateOf(false) }
     var sorting by rememberSaveable { mutableStateOf(false) }
     val order = remember(json) { rules.indices.toList().toMutableStateList() }
     val list = rememberLazyListState()
@@ -268,6 +288,11 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
                 Note(if (sorting) "长按规则或右侧手柄拖动，松手自动保存。\n点击完成或返回退出排序。" else "按列表顺序匹配，第一条命中生效。\n浏览器规则建议放在最后；没有规则命中时不提示、不跳转。")
                 Spacer(Modifier.height(14.dp))
             }
+            if (!sorting && warnings.isNotEmpty()) item(key = "conflicts") {
+                Card(Modifier.fillMaxWidth()) {
+                    SuperArrow(title = "规则冲突提醒 · ${warnings.size} 处", summary = "部分规则被前面的规则遮挡，点击查看", onClick = { showConflicts = true })
+                }
+            }
             if (rules.isEmpty()) item(key = "empty") {
                 Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(24.dp)) {
                     Text("还没有匹配规则", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
@@ -313,6 +338,13 @@ private fun RulesPage(json: String, navigate: (String) -> Unit, reorder: (List<I
             }
             if (!sorting) item(key = "add") { TextButton("添加规则", { navigate("edit:-1") }, Modifier.fillMaxWidth().padding(top = 12.dp), colors = ButtonDefaults.textButtonColorsPrimary()) }
         }
+    }
+    SuperDialog(show = showConflicts, title = "规则冲突提醒", onDismissRequest = { showConflicts = false }) {
+        Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            warnings.forEach { Text(it, fontSize = 14.sp, lineHeight = 21.sp) }
+            Note("仅提醒明确的遮挡与重复，不自动改动规则。复杂条件可在链接测试中查看实际匹配顺序。")
+        }
+        TextButton("知道了", { showConflicts = false }, Modifier.fillMaxWidth())
     }
 }
 
@@ -491,6 +523,10 @@ private fun TestPage(island: Boolean, seconds: Int, onIsland: (Boolean) -> Unit,
                         Text(result.original, fontSize = 13.sp, lineHeight = 19.sp)
                         Caption("改写后的目标")
                         Text(result.target, fontSize = 13.sp, lineHeight = 19.sp)
+                        if (result.matches.isNotEmpty()) {
+                            Caption("匹配顺序")
+                            Text(result.matches, fontSize = 13.sp, lineHeight = 20.sp)
+                        }
                     }
                 }
             }
@@ -716,7 +752,8 @@ private fun backupSetting(key: String, value: Any): String {
 }
 
 @Composable
-private fun LogsPage(json: String, clear: () -> Unit, back: () -> Unit) {
+private fun LogsPage(json: String, rulesJson: String, navigate: (String) -> Unit, clear: () -> Unit, back: () -> Unit) {
+    val rules = remember(rulesJson) { LinkRules.parse(rulesJson) }
     var failuresOnly by rememberSaveable { mutableStateOf(false) }
     val all = remember(json) { JSONArray(json).let { array -> (array.length() - 1 downTo 0).map { array.getJSONObject(it) } } }
     val entries = remember(all, failuresOnly) { if (failuresOnly) all.filter { it.optString("status") == "failed" } else all }
@@ -763,6 +800,12 @@ private fun LogsPage(json: String, clear: () -> Unit, back: () -> Unit) {
                             val event = events.getJSONObject(index)
                             Text("${time.format(java.util.Date(event.optLong("time")))} · ${event.optString("stage")}\n${event.optString("detail")}", fontSize = 12.sp, lineHeight = 18.sp, color = muted())
                         }
+                        val ruleIndex = LinkRules.findRule(entry.optString("rule_key"), rules)
+                        if (ruleIndex >= 0) TextButton("编辑命中规则", { navigate("logedit:$ruleIndex") }, Modifier.fillMaxWidth())
+                        else if (entry.optString("rule_key").isNotEmpty()) Note("原规则已变更、删除或存在重复，无法唯一定位。")
+                        val host = entry.optString("host")
+                        if (host.isNotBlank() && runCatching { WebsiteRules.hosts(host) }.isSuccess)
+                            TextButton("按域名新建规则", { navigate("lognew:$host") }, Modifier.fillMaxWidth())
                     }
                 }
             }

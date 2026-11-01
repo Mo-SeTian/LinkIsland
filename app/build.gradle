@@ -11,8 +11,8 @@ android {
         applicationId 'dev.linkisland.app'
         minSdk 31
         targetSdk 36
-        versionCode 23
-        versionName '0.2.20'
+        versionCode 24
+        versionName '0.2.21'
         manifestPlaceholders = [targetAppId: 'dev.linkisland.app']
     }
     buildFeatures { aidl true; buildConfig true; compose true }
