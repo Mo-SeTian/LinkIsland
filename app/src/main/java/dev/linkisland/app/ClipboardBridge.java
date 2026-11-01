@@ -142,12 +142,17 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
                 return true;
             }
             String url = null;
+            String shareText = null;
             boolean hasText = false, hasUri = false;
             for (int i = 0; i < clip.getItemCount() && url == null; i++) {
                 ClipData.Item item = clip.getItemAt(i);
                 CharSequence text = item.getText();
                 hasText |= text != null && text.length() > 0;
-                if (text != null) url = LinkRules.extract(text.toString());
+                if (text != null) {
+                    String value = text.toString();
+                    url = LinkRules.extract(value);
+                    if (url != null) shareText = value;
+                }
                 hasUri |= item.getUri() != null;
                 if (url == null && item.getUri() != null) url = LinkRules.extract(item.getUri().toString());
             }
@@ -158,7 +163,9 @@ public class ClipboardBridge extends IClipboardBridge.Stub {
             if (url == null) recordResult(summary, source); else result = summary;
             if (source == BASELINE) changes.baseline(url, timestamp);
             else if (changes.shouldPrompt(url, timestamp, android.os.SystemClock.elapsedRealtime(), source == EVENT, source == MANUAL)) {
-                callback.onLink(url);
+                String code = PanShareCodes.extract(shareText, url);
+                if (code == null) callback.onLink(url);
+                else callback.onLinkWithCode(url, code);
                 prompts++;
             }
             diagnostics();

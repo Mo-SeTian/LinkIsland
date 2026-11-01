@@ -5,7 +5,7 @@ import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Only the small legacy schema that we actually send is permitted. */
+/** Only the documented template combinations that we actually send are permitted. */
 final class IslandPayloadValidator {
     private static final Set<String> ALLOWED = Set.of("protocol", "business", "ticker", "tickerPic",
         "aodTitle", "updatable", "enableFloat", "islandFirstFloat", "filterWhenNoPermission",
@@ -38,11 +38,15 @@ final class IslandPayloadValidator {
                 || !text(big.getJSONObject("textInfo"), "title")
                 || !picture(island.getJSONObject("smallIslandArea").getJSONObject("picInfo"), pictures)) return false;
             JSONArray refs = p.getJSONArray("actions");
-            if (refs.length() < 1 || refs.length() > 2 || (modern && refs.length() != 1)) return false;
+            if (refs.length() < 1 || refs.length() > 2) return false;
+            boolean copyButtons = modern && refs.length() == 2;
+            if (copyButtons && (!refs.getJSONObject(0).getString("action").equals("miui.focus.action_copy_code")
+                || !refs.getJSONObject(1).getString("action").equals("miui.focus.action_open"))) return false;
             for (int i = 0; i < refs.length(); i++) {
                 JSONObject action = refs.getJSONObject(i);
-                if (modern && (action.getInt("type") != 2 || !text(action, "actionTitle")
-                    || !color(action, "actionTitleColor") || !color(action, "actionBgColor"))) return false;
+                if (modern && (copyButtons ? action.getInt("type") != 0
+                    : action.getInt("type") != 2 || !text(action, "actionTitle")
+                        || !color(action, "actionTitleColor") || !color(action, "actionBgColor"))) return false;
                 String title = actions.get(action.getString("action"));
                 if (title == null || title.isBlank()) return false;
             }

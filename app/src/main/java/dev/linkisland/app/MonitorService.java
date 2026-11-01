@@ -80,11 +80,8 @@ public final class MonitorService extends Service {
         @Override public void onRecognition(String result) {
             main.post(() -> { if (alive && !paused(MonitorService.this)) JumpLog.recognition(MonitorService.this, result); });
         }
-        @Override public void onLink(String url) { main.post(() -> {
-            if (!alive) return;
-            updatePause();
-            if (!paused(MonitorService.this)) LinkNotifications.show(MonitorService.this, url);
-        }); }
+        @Override public void onLink(String url) { receivedLink(url, null); }
+        @Override public void onLinkWithCode(String url, String code) { receivedLink(url, code); }
         @Override public void onDiagnostics(String diagnostics) {
             main.post(() -> {
                 if (!alive || bridge == null) return;
@@ -107,6 +104,11 @@ public final class MonitorService extends Service {
             });
         }
     };
+    private void receivedLink(String url, String code) { main.post(() -> {
+        if (!alive) return;
+        updatePause();
+        if (!paused(this)) LinkNotifications.show(this, url, code);
+    }); }
     private final ServiceConnection connection = new ServiceConnection() {
         @Override public void onServiceConnected(ComponentName name, IBinder binder) {
             if (!alive) return;

@@ -34,6 +34,9 @@ final class LinkNotifications {
             .addAction(new Notification.Action.Builder(null, "停止监听", stop).build()).build();
     }
     static void show(Context c, String url) {
+        show(c, url, PanShareCodes.extract(null, url));
+    }
+    static void show(Context c, String url, String code) {
         String id = JumpLog.begin(c, "识别", "已识别网页链接", url, "pending");
         try {
             LinkRules.Route route = LinkRules.resolve(url, Prefs.parsedRules(c));
@@ -66,16 +69,26 @@ final class LinkNotifications {
                 .putExtra("log_id", id).setData(Uri.parse("linkisland:dismiss/" + id)), PendingIntent.FLAG_IMMUTABLE);
             Notification.Action openAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_link), "打开", pi).build();
             Notification.Action dismissAction = new Notification.Action.Builder(null, "忽略", dismiss).build();
+            boolean hasCode = PanShareCodes.supports(url) && PanShareCodes.valid(code);
+            Notification.Action copyAction = null;
+            if (hasCode) {
+                Intent copy = new Intent(c, CopyCodeReceiver.class).putExtra("log_id", id).putExtra("code", code)
+                    .setData(Uri.parse("linkisland:copy-code/" + id)).addFlags(Intent.FLAG_RECEIVER_FOREGROUND);
+                PendingIntent copyIntent = PendingIntent.getBroadcast(c, 6, copy, PendingIntent.FLAG_IMMUTABLE);
+                copyAction = new Notification.Action.Builder(Icon.createWithResource(c, R.drawable.ic_copy), "复制提取码", copyIntent).build();
+            }
             String title = "使用 " + label + " 打开？";
             // Show only the hostname; query strings and clipboard text never appear in diagnostics.
-            String host = URIHost(url);
+            String host = URIHost(url) + (hasCode ? " · 含提取码" : "");
             Icon targetIcon = Icon.createWithBitmap(TargetAppIcon.load(c, route.packageName));
             Notification.Builder builder = new Notification.Builder(c, PROMPTS)
                 .setSmallIcon(R.drawable.ic_link).setLargeIcon(targetIcon).setContentTitle(title).setContentText(host)
                 .setContentIntent(pi).setDeleteIntent(dismiss).setCategory(Notification.CATEGORY_STATUS)
                 .setVisibility(Notification.VISIBILITY_PRIVATE).setAutoCancel(true)
                 .setTimeoutAfter(seconds * 1000L).setShowWhen(false).setOnlyAlertOnce(false)
-                .addAction(openAction).addAction(dismissAction);
+                .addAction(openAction);
+            if (copyAction != null) builder.addAction(copyAction);
+            builder.addAction(dismissAction);
             Notification ordinary = builder.build();
             // Keep the pending choice when the user clears unrelated notifications.
             ordinary.flags |= Notification.FLAG_NO_CLEAR;
@@ -87,12 +100,15 @@ final class LinkNotifications {
                     Bundle extras = new Bundle(), actions = new Bundle(), pics = new Bundle();
                     actions.putParcelable("miui.focus.action_open", openAction);
                     actions.putParcelable("miui.focus.action_dismiss", dismissAction);
+                    if (copyAction != null) actions.putParcelable("miui.focus.action_copy_code", copyAction);
                     pics.putParcelable(IslandPayload.ICON, targetIcon);
                     boolean modern = android.provider.Settings.System.getInt(c.getContentResolver(), "notification_focus_protocol", 0) >= 3;
-                    JSONObject payload = IslandPayload.create(label, host, modern, seconds);
-                    if (IslandPayloadValidator.isSafe(payload, pics.keySet(), Map.of(
-                        "miui.focus.action_open", openAction.title.toString(),
-                        "miui.focus.action_dismiss", dismissAction.title.toString()))) {
+                    JSONObject payload = IslandPayload.create(label, host, modern, seconds, hasCode);
+                    Map<String, String> titles = new java.util.HashMap<>();
+                    titles.put("miui.focus.action_open", openAction.title.toString());
+                    titles.put("miui.focus.action_dismiss", dismissAction.title.toString());
+                    if (copyAction != null) titles.put("miui.focus.action_copy_code", copyAction.title.toString());
+                    if (IslandPayloadValidator.isSafe(payload, pics.keySet(), titles)) {
                         extras.putString("miui.focus.param", payload.toString());
                         extras.putBundle("miui.focus.actions", actions);
                         extras.putBundle("miui.focus.pics", pics);

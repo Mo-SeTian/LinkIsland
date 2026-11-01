@@ -256,7 +256,7 @@ class MainActivity : ComponentActivity() {
                 requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 10)
                 return "允许通知后，请再次发送测试提示"
             }
-            LinkNotifications.show(this, url)
+            LinkNotifications.show(this, url, PanShareCodes.extract(text, url))
             toast("已发送，请查看超级岛或通知栏")
             null
         } catch (_: Exception) { "规则无法处理这个链接，请检查改写模板" }

@@ -3,6 +3,7 @@
 -keepattributes SourceFile,LineNumberTable
 -keep,allowoptimization class dev.linkisland.app.LinkNotifications {
     static void show(android.content.Context, java.lang.String);
+    static void show(android.content.Context, java.lang.String, java.lang.String);
 }
 -keep,allowoptimization class dev.linkisland.app.PromptSafety {
     static void cancel(android.content.Context);

@@ -4,7 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Official OS3 template 15: one icon/text block and one primary text action. */
+/** Official OS3 template 15: icon/text with one text action or a copy/open round pair. */
 final class IslandPayload {
     static final String ICON = "miui.focus.pic_target";
     static JSONObject create(String label, String host) throws JSONException { return create(label, host, true); }
@@ -12,6 +12,9 @@ final class IslandPayload {
         return create(label, host, modern, 30);
     }
     static JSONObject create(String label, String host, boolean modern, int seconds) throws JSONException {
+        return create(label, host, modern, seconds, false);
+    }
+    static JSONObject create(String label, String host, boolean modern, int seconds, boolean hasCode) throws JSONException {
         JSONObject picture = new JSONObject().put("type", 1).put("pic", ICON);
         JSONObject island = new JSONObject().put("islandProperty", 2).put("islandTimeout", PromptDuration.valid(seconds))
             .put("bigIslandArea", new JSONObject()
@@ -32,10 +35,13 @@ final class IslandPayload {
                     .put("action", "miui.focus.action_open").put("actionTitle", "打开")
                     .put("actionTitleColor", "#FFFFFF").put("actionTitleColorDark", "#FFFFFF")
                     .put("actionBgColor", "#287EFF").put("clickWithCollapse", true)));
+            if (hasCode) params.put("actions", new JSONArray()
+                .put(new JSONObject().put("type", 0).put("action", "miui.focus.action_copy_code").put("clickWithCollapse", false))
+                .put(new JSONObject().put("type", 0).put("action", "miui.focus.action_open").put("clickWithCollapse", true)));
         } else {
             params.put("baseInfo", new JSONObject().put("type", 1).put("title", label).put("content", host))
                 .put("actions", new JSONArray().put(new JSONObject().put("action", "miui.focus.action_open"))
-                    .put(new JSONObject().put("action", "miui.focus.action_dismiss")));
+                    .put(new JSONObject().put("action", hasCode ? "miui.focus.action_copy_code" : "miui.focus.action_dismiss")));
         }
         return new JSONObject().put("param_v2", params);
     }

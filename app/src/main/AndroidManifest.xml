@@ -23,6 +23,7 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-enabled clipboard URL listener using a Shizuku or root bridge, with visible stop action" />
         </service>
         <receiver android:name=".DismissReceiver" android:exported="false" />
+        <receiver android:name=".CopyCodeReceiver" android:exported="false" />
         <service android:name=".MonitorTile" android:exported="true" android:icon="@drawable/ic_link"
             android:label="链接岛" android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter><action android:name="android.service.quicksettings.action.QS_TILE" /></intent-filter>

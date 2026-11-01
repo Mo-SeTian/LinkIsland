@@ -504,6 +504,7 @@ private fun TestPage(island: Boolean, seconds: Int, onIsland: (Boolean) -> Unit,
         Note("输入链接，测试提示和目标 App。\n无需开启后台监听。")
         Spacer(Modifier.height(24.dp))
         Field("输入或粘贴网页链接", link, { link = it; error = ""; preview = null }, singleLine = false, url = true)
+        Note("也可粘贴“网盘链接＋提取码”分享文字，发送提示后点按复制提取码。")
         Spacer(Modifier.height(12.dp))
         TextButton("预览命中结果", {
             error = ""
